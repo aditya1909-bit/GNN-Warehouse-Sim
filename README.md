@@ -32,6 +32,8 @@ Open `notebooks/input_modeling_analysis.ipynb` and run all cells.
 
 The notebook includes:
 - Data card and context for interarrival modeling.
-- Histogram and box plot EDA.
+- Histogram and box plot EDA on homogeneous base intervals.
 - Distribution fitting for Exponential, Gamma, and Weibull.
 - Goodness-of-fit metrics: Chi-square, K-S, and Anderson-Darling statistic.
+- Q-Q and P-P diagnostics.
+- Automated cross-check with `distfit` (if installed).
