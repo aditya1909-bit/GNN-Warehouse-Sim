@@ -29,6 +29,8 @@ Each dispatch row includes:
 - task timing, zones, and service estimate
 - robot-to-pickup and pickup-to-dropoff travel estimates
 - global queue and fleet counts at the decision time
+- execution-model and reservation summary fields
+- estimated congestion delay and blocked-segment features for candidate routes
 
 ## Design Rationale
 

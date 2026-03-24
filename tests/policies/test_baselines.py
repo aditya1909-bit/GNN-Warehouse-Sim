@@ -6,9 +6,13 @@ from warehouse_sim.agents import RobotSpec, RobotState
 from warehouse_sim.environment import WarehouseEnvironment
 from warehouse_sim.graph import SyntheticGridLayoutConfig, build_synthetic_grid_layout
 from warehouse_sim.policies import (
+    CongestionAwareNearestRobotTaskPolicy,
+    CongestionObservation,
     FIFODispatchPolicy,
     NearestRobotTaskPolicy,
     RandomDispatchPolicy,
+    ResourceReservationObservation,
+    DispatchContextBuilder,
 )
 from warehouse_sim.tasks import Task
 
@@ -65,3 +69,27 @@ def test_random_policy_is_seeded() -> None:
     second = RandomDispatchPolicy(seed=11).select_assignment(robots, tasks, environment)
 
     assert first == second
+
+
+def test_congestion_aware_policy_avoids_more_blocked_candidate() -> None:
+    environment = _environment()
+    context = DispatchContextBuilder(environment).build(
+        current_time=0.0,
+        robot_states=(RobotState.from_spec(RobotSpec(robot_id="robot_1", initial_node="r0_c0")),),
+        pending_tasks=(
+            Task(task_id="task_blocked", release_time=0.0, pickup_node="r0_c1", dropoff_node="r0_c3"),
+            Task(task_id="task_clear", release_time=0.0, pickup_node="r0_c0", dropoff_node="r0_c1"),
+        ),
+        congestion_observation=CongestionObservation(
+            execution_model="reserved_edges",
+            edge_reservations=(
+                ResourceReservationObservation(resource_id="r0_c0->r0_c1", reserved_until=5.0),
+            ),
+        ),
+        execution_model="reserved_edges",
+    )
+
+    decision = CongestionAwareNearestRobotTaskPolicy().select_assignment_from_context(context)
+
+    assert decision is not None
+    assert decision.task_id == "task_clear"

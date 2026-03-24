@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from warehouse_sim.graph import GraphValidationError, WarehouseGraph, WarehouseNode
+from warehouse_sim.graph import GraphValidationError, WarehouseEdge, WarehouseGraph, WarehouseNode
 
 
 @dataclass(frozen=True)
@@ -80,6 +80,26 @@ class WarehouseEnvironment:
 
         return self.graph.shortest_path(source=source, target=target, weight=weight)
 
+    def shortest_path_edges(
+        self,
+        source: str,
+        target: str,
+        weight: str = "travel_time",
+    ) -> tuple[WarehouseEdge, ...]:
+        """Delegate explicit shortest-path edge queries to the graph."""
+
+        return self.graph.shortest_path_edges(source=source, target=target, weight=weight)
+
+    def path_distance(self, path: tuple[str, ...]) -> float:
+        """Return the explicit distance of a materialized path."""
+
+        return self.graph.path_distance(path)
+
+    def path_travel_time(self, path: tuple[str, ...]) -> float:
+        """Return the explicit travel time of a materialized path."""
+
+        return self.graph.path_travel_time(path)
+
     def travel_time(self, source: str, target: str) -> float:
         """Return the minimum travel time between two nodes."""
 
@@ -98,4 +118,3 @@ def _derive_zones_from_graph(graph: WarehouseGraph) -> tuple[Zone, ...]:
             continue
         grouped.setdefault(node.zone, []).append(node.node_id)
     return tuple(Zone(zone_id=zone_id, node_ids=tuple(sorted(node_ids))) for zone_id, node_ids in sorted(grouped.items()))
-

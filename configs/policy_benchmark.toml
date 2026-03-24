@@ -10,6 +10,7 @@ policies = [
   "random",
   "nearest_robot_task",
   "nearest_task_for_idle_robot",
+  "congestion_aware_nearest_robot_task",
 ]
 output_dir = "outputs/benchmarks/baseline_policy_benchmark"
 write_plots = false

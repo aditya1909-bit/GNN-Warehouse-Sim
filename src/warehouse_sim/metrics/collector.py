@@ -15,10 +15,12 @@ def compute_simulation_metrics(result: "SimulationResult") -> SimulationMetrics:
 
     waiting_times = [execution.waiting_time for execution in result.executions]
     turnaround_times = [execution.turnaround_time for execution in result.executions]
-    travel_distances = [
-        execution.travel_to_pickup_distance + execution.travel_to_dropoff_distance
-        for execution in result.executions
+    realized_travel_times = [
+        execution.travel_to_pickup_time + execution.travel_to_dropoff_time for execution in result.executions
     ]
+    travel_distances = [execution.travel_to_pickup_distance + execution.travel_to_dropoff_distance for execution in result.executions]
+    congestion_delays = [execution.congestion_delay_time for execution in result.executions]
+    blocked_traversal_events_total = sum(execution.blocked_traversal_events for execution in result.executions)
 
     makespan = result.finished_at - result.started_at
     robot_metrics = tuple(
@@ -39,6 +41,13 @@ def compute_simulation_metrics(result: "SimulationResult") -> SimulationMetrics:
         average_travel_distance_per_task=(
             sum(travel_distances) / len(travel_distances) if travel_distances else None
         ),
+        realized_travel_time_total=sum(realized_travel_times),
+        realized_travel_distance_total=sum(travel_distances),
+        congestion_delay_total=sum(congestion_delays),
+        average_congestion_delay_per_completed_task=(
+            sum(congestion_delays) / len(congestion_delays) if congestion_delays else None
+        ),
+        blocked_traversal_events_total=blocked_traversal_events_total,
         average_queue_length=_average_ready_queue_length(result.queue_snapshots),
         throughput_per_hour=(len(result.executions) / makespan * 3600.0 if makespan > 0 else 0.0),
         makespan=makespan,
@@ -61,6 +70,8 @@ def _build_robot_metrics(
         idle_time=total_idle_time,
         travel_time=robot.total_travel_time,
         travel_distance=robot.total_travel_distance,
+        congestion_delay_time=robot.total_congestion_delay,
+        blocked_traversal_events=robot.blocked_traversal_events,
     )
 
 

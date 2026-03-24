@@ -11,8 +11,10 @@ from warehouse_sim.policies import (
     DispatchPolicy,
     build_candidate_assignment_observations,
 )
+from warehouse_sim.simulation.execution import ResourceReservationTable
 from warehouse_sim.simulation.models import (
     DispatchTraceRecord,
+    ExecutionModel,
     QueueSnapshot,
     SimulationConfig,
     SimulationResult,
@@ -34,6 +36,7 @@ def run_simulation(
     queue = TaskQueue(tasks)
     robot_states = tuple(RobotState.from_spec(robot) for robot in robots)
     context_builder = DispatchContextBuilder(environment)
+    reservation_table = ResourceReservationTable(config.execution_model)
     for robot in robot_states:
         environment.graph.node(robot.current_node)
     for task in tasks:
@@ -53,6 +56,7 @@ def run_simulation(
             current_time=current_time,
             robot_states=robot_states,
             config=config,
+            reservation_table=reservation_table,
         )
         ready_tasks = context.ready_tasks
         idle_robots = context.idle_robots
@@ -72,6 +76,8 @@ def run_simulation(
                     environment=environment,
                     robot=robot,
                     task=task,
+                    execution_model=config.execution_model,
+                    reservation_table=reservation_table,
                 )
             )
             context = _build_dispatch_context(
@@ -80,6 +86,7 @@ def run_simulation(
                 current_time=current_time,
                 robot_states=robot_states,
                 config=config,
+                reservation_table=reservation_table,
             )
             ready_tasks = context.ready_tasks
             idle_robots = context.idle_robots
@@ -128,26 +135,33 @@ def _assign_task(
     environment: WarehouseEnvironment,
     robot: RobotState,
     task: Task,
+    execution_model: ExecutionModel,
+    reservation_table: ResourceReservationTable,
 ) -> TaskExecution:
     if current_time > robot.available_time:
         robot.total_idle_time += current_time - robot.available_time
 
-    travel_to_pickup_distance = environment.distance(robot.current_node, task.pickup_node)
-    travel_to_pickup_time = (
-        environment.travel_time(robot.current_node, task.pickup_node) / robot.spec.speed_multiplier
+    assignment = reservation_table.execute_assignment(
+        environment=environment,
+        execution_model=execution_model,
+        current_time=current_time,
+        start_node=robot.current_node,
+        pickup_node=task.pickup_node,
+        dropoff_node=task.dropoff_node,
+        service_time=task.service_time_estimate,
+        speed_multiplier=robot.spec.speed_multiplier,
     )
-    travel_to_dropoff_distance = environment.distance(task.pickup_node, task.dropoff_node)
-    travel_to_dropoff_time = (
-        environment.travel_time(task.pickup_node, task.dropoff_node) / robot.spec.speed_multiplier
-    )
-
-    pickup_arrival_time = current_time + travel_to_pickup_time
-    service_start_time = pickup_arrival_time
-    completion_time = service_start_time + task.service_time_estimate + travel_to_dropoff_time
+    travel_to_pickup = assignment.travel_to_pickup
+    travel_to_dropoff = assignment.travel_to_dropoff
+    pickup_arrival_time = assignment.pickup_arrival_time
+    service_start_time = assignment.service_start_time
+    completion_time = assignment.completion_time
 
     robot.total_busy_time += completion_time - current_time
-    robot.total_travel_distance += travel_to_pickup_distance + travel_to_dropoff_distance
-    robot.total_travel_time += travel_to_pickup_time + travel_to_dropoff_time
+    robot.total_travel_distance += travel_to_pickup.distance + travel_to_dropoff.distance
+    robot.total_travel_time += travel_to_pickup.realized_travel_time + travel_to_dropoff.realized_travel_time
+    robot.total_congestion_delay += assignment.congestion_delay_time
+    robot.blocked_traversal_events += assignment.blocked_traversal_events
     robot.available_time = completion_time
     robot.current_node = task.dropoff_node
     robot.completed_task_ids.append(task.task_id)
@@ -162,10 +176,23 @@ def _assign_task(
         completion_time=completion_time,
         waiting_time=current_time - task.release_time,
         turnaround_time=completion_time - task.release_time,
-        travel_to_pickup_time=travel_to_pickup_time,
-        travel_to_pickup_distance=travel_to_pickup_distance,
-        travel_to_dropoff_time=travel_to_dropoff_time,
-        travel_to_dropoff_distance=travel_to_dropoff_distance,
+        execution_model=execution_model,
+        travel_to_pickup_time=travel_to_pickup.realized_travel_time,
+        travel_to_pickup_distance=travel_to_pickup.distance,
+        travel_to_pickup_ideal_time=travel_to_pickup.ideal_travel_time,
+        travel_to_pickup_wait_time=travel_to_pickup.wait_time,
+        travel_to_pickup_blocked_events=travel_to_pickup.blocked_events,
+        travel_to_pickup_path_nodes=travel_to_pickup.path_nodes,
+        travel_to_pickup_path_arcs=travel_to_pickup.path_arcs,
+        travel_to_dropoff_time=travel_to_dropoff.realized_travel_time,
+        travel_to_dropoff_distance=travel_to_dropoff.distance,
+        travel_to_dropoff_ideal_time=travel_to_dropoff.ideal_travel_time,
+        travel_to_dropoff_wait_time=travel_to_dropoff.wait_time,
+        travel_to_dropoff_blocked_events=travel_to_dropoff.blocked_events,
+        travel_to_dropoff_path_nodes=travel_to_dropoff.path_nodes,
+        travel_to_dropoff_path_arcs=travel_to_dropoff.path_arcs,
+        congestion_delay_time=assignment.congestion_delay_time,
+        blocked_traversal_events=assignment.blocked_traversal_events,
     )
 
 
@@ -186,6 +213,7 @@ def _build_dispatch_context(
     current_time: float,
     robot_states: tuple[RobotState, ...],
     config: SimulationConfig,
+    reservation_table: ResourceReservationTable,
 ):
     pending_tasks = queue.pending_tasks()
     if config.horizon_seconds is not None:
@@ -194,6 +222,8 @@ def _build_dispatch_context(
         current_time=current_time,
         robot_states=robot_states,
         pending_tasks=pending_tasks,
+        congestion_observation=reservation_table.snapshot(current_time),
+        execution_model=config.execution_model.value,
     )
 
 
@@ -289,6 +319,14 @@ def _build_dispatch_trace_records(
                 idle_robot_count=int(candidate.feature("idle_robot_count")),
                 busy_robot_count=int(candidate.feature("busy_robot_count")),
                 mean_ready_task_age=candidate.feature("mean_ready_task_age"),
+                average_robot_time_until_available=candidate.feature("average_robot_time_until_available"),
+                execution_model=context.global_observation.execution_model,
+                active_reserved_edge_count=context.global_observation.active_reserved_edge_count,
+                active_reserved_node_count=context.global_observation.active_reserved_node_count,
+                estimated_pickup_congestion_delay=candidate.feature("estimated_pickup_congestion_delay"),
+                estimated_dropoff_congestion_delay=candidate.feature("estimated_dropoff_congestion_delay"),
+                estimated_pickup_blocked_segments=int(candidate.feature("estimated_pickup_blocked_segments")),
+                estimated_dropoff_blocked_segments=int(candidate.feature("estimated_dropoff_blocked_segments")),
             )
         )
     return traces

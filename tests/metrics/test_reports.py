@@ -52,6 +52,7 @@ def test_write_simulation_report(tmp_path: Path) -> None:
     payload = json.loads(written["summary"].read_text(encoding="utf-8"))
     assert payload["experiment_name"] == "report_test"
     assert payload["metrics"]["tasks_completed"] == 1
+    assert "congestion_delay_total" in payload["metrics"]
 
 
 def test_plot_data_preparation() -> None:

@@ -14,3 +14,5 @@ def test_load_policy_benchmark_manifest() -> None:
     assert config.name == "baseline_policy_benchmark"
     assert len(config.scenario_configs) == 3
     assert "nearest_robot_task" in config.policies
+    assert "congestion_aware_nearest_robot_task" in config.policies
+    assert config.seeds is None

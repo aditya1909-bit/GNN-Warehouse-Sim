@@ -2,48 +2,19 @@
 
 ## Purpose
 
-This stage does not add a learned policy, training loop, or fake GNN pipeline.
-It adds the stable observation and featurization contracts that a later learned
-policy layer will need.
+This stage still does not add a learned policy or fake GNN pipeline. It extends the observation contracts so later learned policies can see a more realistic multi-robot coordination state.
 
 ## Implemented Now
 
-- Static graph featurization with explicit node features and directed travel arcs
-- Dispatch-time context builder that packages:
-  - graph features
-  - robot observations
-  - task observations
-  - global queue and fleet state
-- Policy API hook via `DispatchPolicy.select_assignment_from_context(...)`
-- Backward compatibility for existing baseline policies through the legacy
-  `select_assignment(...)` adapter
+- static graph featurization with explicit directed travel arcs
+- dispatch-time context builder for robot, task, and global observations
+- policy API hook via `DispatchPolicy.select_assignment_from_context(...)`
+- candidate observations shared by live policies and exported datasets
+- congestion-sensitive observation fields derived from active reservations
 
-## Feature Scope
+## Dynamic Observation Scope
 
-Node features currently expose:
-
-- `node_id`
-- coordinates
-- `node_type`
-- `zone_id`
-- inbound and outbound degree
-
-Arc features currently expose:
-
-- `source_id`
-- `target_id`
-- path distance
-- travel time
-
-Task observations currently expose:
-
-- release timing and readiness
-- pickup and dropoff endpoints
-- zone references
-- priority and service estimate
-- pickup-to-dropoff travel estimates
-
-Robot observations currently expose:
+Robot observations expose:
 
 - current node and zone
 - availability timing
@@ -51,27 +22,33 @@ Robot observations currently expose:
 - cumulative busy, idle, and travel counters
 - completed-task count
 
-Global observations currently expose:
+Task observations expose:
+
+- release timing and readiness
+- pickup and dropoff endpoints
+- priority and service estimate
+- pickup-to-dropoff travel estimates
+
+Global observations expose:
 
 - current simulation time
 - pending, ready, and future task counts
 - idle and busy robot counts
-- mean age of ready tasks
-- maximum robot availability time
+- mean ready-task age
+- max and average robot time-until-available
+- active reserved edge/node counts
+- current execution model label
 
-## Not Implemented Yet
+Candidate features now also support interpretable congestion proxies such as:
 
-- Torch, PyG, DGL, or any other ML framework integration
-- Learned dispatch policies
-- Offline dataset generation for policy training
-- State-action replay buffers
-- Graph neural network training or inference
+- estimated pickup congestion delay
+- estimated dropoff congestion delay
+- estimated pickup blocked segments
+- estimated dropoff blocked segments
 
-## Design Rationale
+## Still Not Implemented
 
-- Keep the graph features static and explainable.
-- Keep dynamic policy observations separate from the simulation engine’s core
-  state updates.
-- Preserve the baseline dispatch API so non-learning policies stay simple.
-- Expose enough typed structure that later learned policies can consume the same
-  simulator state without reaching into private engine internals.
+- Torch, PyG, DGL, or other ML framework integration
+- learned dispatch policies
+- offline training pipelines
+- GNN training or inference

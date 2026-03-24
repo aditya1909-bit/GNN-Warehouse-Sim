@@ -111,6 +111,14 @@ class SimulationRunConfig:
     policy: str = "fifo"
     horizon_seconds: float | None = None
     continue_until_all_tasks_complete: bool = True
+    execution_model: str = "idealized"
+
+    def __post_init__(self) -> None:
+        supported_models = {"idealized", "reserved_edges", "reserved_nodes"}
+        if self.execution_model not in supported_models:
+            raise ConfigValidationError(
+                "simulation.execution_model must be one of: idealized, reserved_edges, reserved_nodes"
+            )
 
 
 @dataclass(frozen=True)

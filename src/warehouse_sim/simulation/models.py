@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import TYPE_CHECKING
 
 from warehouse_sim.agents import RobotState
@@ -12,16 +13,27 @@ if TYPE_CHECKING:
     from warehouse_sim.metrics import SimulationMetrics
 
 
+class ExecutionModel(StrEnum):
+    """Supported task-execution fidelity modes."""
+
+    IDEALIZED = "idealized"
+    RESERVED_EDGES = "reserved_edges"
+    RESERVED_NODES = "reserved_nodes"
+
+
 @dataclass(frozen=True)
 class SimulationConfig:
     """Configuration for a discrete-event baseline simulation."""
 
     horizon_seconds: float | None = None
     continue_until_all_tasks_complete: bool = True
+    execution_model: ExecutionModel = ExecutionModel.IDEALIZED
 
     def __post_init__(self) -> None:
         if self.horizon_seconds is not None and self.horizon_seconds < 0:
             raise ValueError("horizon_seconds must be >= 0 when provided.")
+        if not isinstance(self.execution_model, ExecutionModel):
+            object.__setattr__(self, "execution_model", ExecutionModel(self.execution_model))
 
 
 @dataclass(frozen=True)
@@ -37,10 +49,23 @@ class TaskExecution:
     completion_time: float
     waiting_time: float
     turnaround_time: float
+    execution_model: ExecutionModel
     travel_to_pickup_time: float
     travel_to_pickup_distance: float
+    travel_to_pickup_ideal_time: float
+    travel_to_pickup_wait_time: float
+    travel_to_pickup_blocked_events: int
+    travel_to_pickup_path_nodes: tuple[str, ...]
+    travel_to_pickup_path_arcs: tuple[str, ...]
     travel_to_dropoff_time: float
     travel_to_dropoff_distance: float
+    travel_to_dropoff_ideal_time: float
+    travel_to_dropoff_wait_time: float
+    travel_to_dropoff_blocked_events: int
+    travel_to_dropoff_path_nodes: tuple[str, ...]
+    travel_to_dropoff_path_arcs: tuple[str, ...]
+    congestion_delay_time: float
+    blocked_traversal_events: int
 
 
 @dataclass(frozen=True)
@@ -91,6 +116,14 @@ class DispatchTraceRecord:
     idle_robot_count: int
     busy_robot_count: int
     mean_ready_task_age: float
+    average_robot_time_until_available: float
+    execution_model: str
+    active_reserved_edge_count: int
+    active_reserved_node_count: int
+    estimated_pickup_congestion_delay: float
+    estimated_dropoff_congestion_delay: float
+    estimated_pickup_blocked_segments: int
+    estimated_dropoff_blocked_segments: int
 
 
 @dataclass(frozen=True)

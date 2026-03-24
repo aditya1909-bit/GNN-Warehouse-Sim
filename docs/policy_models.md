@@ -2,21 +2,17 @@
 
 ## Purpose
 
-This stage adds the first honest observation-driven policy integration. It is
-not a GNN. It is a configurable linear scoring policy that consumes the same
-candidate features exposed by the live dispatch context and exported observation
-datasets.
+The repository still contains simple, honest dispatch policies. There is no neural model here. The most flexible policy remains a configurable linear scorer over exported/live candidate features.
 
 ## Implemented Now
 
+- baseline heuristics: `fifo`, `random`, `nearest_robot_task`, `nearest_task_for_idle_robot`
+- congestion-aware heuristic: `congestion_aware_nearest_robot_task`
 - `linear_assignment_model` dispatch policy
-- Named scalar feature weights loaded from TOML config
-- Candidate robot-task observation builder shared between:
-  - live dispatch scoring
-  - dispatch trace export
-- Validation of unsupported feature names
+- named scalar feature weights loaded from TOML
+- validation of unsupported feature names
 
-## Supported Feature Weights
+## Supported Linear Features
 
 - `travel_to_pickup_time`
 - `travel_to_pickup_distance`
@@ -37,19 +33,22 @@ datasets.
 - `idle_robot_count`
 - `busy_robot_count`
 - `mean_ready_task_age`
+- `average_robot_time_until_available`
+- `active_reserved_edge_count`
+- `active_reserved_node_count`
+- `estimated_pickup_congestion_delay`
+- `estimated_dropoff_congestion_delay`
+- `estimated_pickup_blocked_segments`
+- `estimated_dropoff_blocked_segments`
 
-## Why This Counts As A Real Integration
+## Why This Still Matters
 
-- The policy runs inside the real simulator.
-- It scores the same candidate assignments that appear in exported datasets.
-- Its behavior is fully specified by explicit model weights rather than hidden
-  heuristics in ad hoc code.
-- It establishes a stable bridge between simulator state and future learned
-  policies without claiming any neural component exists yet.
+- The policies run inside the real simulator.
+- The linear scorer and dataset export use the same candidate feature contract.
+- The congestion-aware heuristic gives a stronger non-learning baseline without pretending to be learned.
 
 ## Not Implemented Yet
 
-- Weight fitting or training
-- Neural models
-- Offline imitation or reinforcement-learning pipelines
-- Model checkpoint formats beyond TOML-configured scalar weights
+- weight fitting or training
+- neural models
+- offline imitation or reinforcement-learning pipelines

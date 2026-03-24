@@ -84,6 +84,7 @@ def load_experiment_config(path: Path) -> ExperimentConfig:
             continue_until_all_tasks_complete=bool(
                 simulation.get("continue_until_all_tasks_complete", True)
             ),
+            execution_model=str(simulation.get("execution_model", "idealized")),
         ),
         reporting=ReportingConfig(
             output_dir=Path(str(reporting.get("output_dir", "outputs/default_experiment"))),

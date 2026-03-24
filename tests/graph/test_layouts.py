@@ -42,6 +42,9 @@ def test_shortest_path_respects_one_way_edges() -> None:
     )
 
     assert graph.shortest_path("r0_c0", "r0_c2") == ("r0_c0", "r0_c1", "r0_c2")
+    assert [edge.target for edge in graph.shortest_path_edges("r0_c0", "r0_c2")] == ["r0_c1", "r0_c2"]
+    assert graph.path_distance(("r0_c0", "r0_c1", "r0_c2")) == pytest.approx(2.0)
+    assert graph.path_travel_time(("r0_c0", "r0_c1", "r0_c2")) == pytest.approx(2.0)
     with pytest.raises(PathNotFoundError):
         graph.shortest_path("r0_c1", "r0_c0")
 
@@ -68,4 +71,3 @@ def test_invalid_directed_edge_definition_raises() -> None:
             columns=2,
             directed_edges=(((0, 0), (1, 1)),),
         )
-

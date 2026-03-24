@@ -125,11 +125,52 @@ class WarehouseGraph:
         self.node(node_id)
         return tuple(self._nodes[neighbor_id] for neighbor_id in sorted(self._adjacency[node_id]))
 
+    def edge(self, source: str, target: str) -> WarehouseEdge:
+        """Fetch a traversable directed arc between two nodes."""
+
+        self.node(source)
+        self.node(target)
+        try:
+            return self._adjacency[source][target]
+        except KeyError as exc:
+            raise GraphValidationError(f"Unknown edge from {source} to {target}.") from exc
+
     def shortest_path(self, source: str, target: str, weight: str = "travel_time") -> tuple[str, ...]:
         """Compute the shortest path between two nodes."""
 
         _, path = self._dijkstra(source=source, target=target, weight=weight)
         return path
+
+    def shortest_path_edges(
+        self,
+        source: str,
+        target: str,
+        weight: str = "travel_time",
+    ) -> tuple[WarehouseEdge, ...]:
+        """Compute the shortest path as an explicit edge sequence."""
+
+        return self.path_edges(self.shortest_path(source=source, target=target, weight=weight))
+
+    def path_edges(self, path: tuple[str, ...]) -> tuple[WarehouseEdge, ...]:
+        """Materialize the directed edges traversed by a node path."""
+
+        if not path:
+            raise GraphValidationError("path must contain at least one node.")
+        for node_id in path:
+            self.node(node_id)
+        if len(path) == 1:
+            return ()
+        return tuple(self.edge(source, target) for source, target in zip(path, path[1:]))
+
+    def path_distance(self, path: tuple[str, ...]) -> float:
+        """Return the explicit path distance implied by a node sequence."""
+
+        return sum(edge.distance for edge in self.path_edges(path))
+
+    def path_travel_time(self, path: tuple[str, ...]) -> float:
+        """Return the explicit path travel time implied by a node sequence."""
+
+        return sum(edge.travel_time for edge in self.path_edges(path))
 
     def shortest_path_length(
         self,
@@ -169,7 +210,7 @@ class WarehouseGraph:
             if current_cost > costs[current_node]:
                 continue
 
-            for neighbor_id, edge in self._adjacency[current_node].items():
+            for neighbor_id, edge in sorted(self._adjacency[current_node].items()):
                 edge_cost = getattr(edge, weight)
                 next_cost = current_cost + edge_cost
                 if next_cost < costs.get(neighbor_id, float("inf")):
@@ -185,4 +226,3 @@ class WarehouseGraph:
             path.append(previous[path[-1]] or "")
         path.reverse()
         return costs[target], tuple(path)
-

@@ -2,15 +2,18 @@
 
 from warehouse_sim.policies.base import DispatchDecision, DispatchPolicy
 from warehouse_sim.policies.baselines import (
+    CongestionAwareNearestRobotTaskPolicy,
     FIFODispatchPolicy,
     NearestRobotTaskPolicy,
     NearestTaskForIdleRobotPolicy,
     RandomDispatchPolicy,
 )
 from warehouse_sim.policies.observation import (
+    CongestionObservation,
     DispatchContext,
     DispatchContextBuilder,
     GlobalObservation,
+    ResourceReservationObservation,
     RobotObservation,
     TaskObservation,
 )
@@ -25,6 +28,8 @@ from warehouse_sim.policies.scoring import (
 __all__ = [
     "CandidateAssignmentObservation",
     "CandidateScoringError",
+    "CongestionAwareNearestRobotTaskPolicy",
+    "CongestionObservation",
     "DispatchDecision",
     "DispatchContext",
     "DispatchContextBuilder",
@@ -35,6 +40,7 @@ __all__ = [
     "NearestRobotTaskPolicy",
     "NearestTaskForIdleRobotPolicy",
     "RandomDispatchPolicy",
+    "ResourceReservationObservation",
     "RobotObservation",
     "SUPPORTED_CANDIDATE_FEATURES",
     "TaskObservation",

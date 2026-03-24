@@ -22,33 +22,45 @@ def run_benchmark_from_config(
 
     for scenario_path in benchmark_config.scenario_configs:
         experiment_config = load_experiment_config(scenario_path)
-        for policy in benchmark_config.policies:
-            policy_config = _override_policy(experiment_config, policy)
-            run_output_dir = benchmark_root / experiment_config.name / policy
-            result, written_paths = run_experiment_from_config(
-                config=policy_config,
-                output_dir_override=run_output_dir,
-                force_write_plots=(
-                    benchmark_config.write_plots if force_write_plots is None else force_write_plots
-                ),
-            )
-            summary_rows.append(
-                {
-                    "scenario_name": experiment_config.name,
-                    "scenario_config": str(scenario_path),
-                    "policy": policy,
-                    "tasks_generated": result.metrics.tasks_generated,
-                    "tasks_completed": result.metrics.tasks_completed,
-                    "tasks_unassigned": result.metrics.tasks_unassigned,
-                    "average_waiting_time": result.metrics.average_waiting_time,
-                    "average_turnaround_time": result.metrics.average_turnaround_time,
-                    "average_travel_distance_per_task": result.metrics.average_travel_distance_per_task,
-                    "average_queue_length": result.metrics.average_queue_length,
-                    "throughput_per_hour": result.metrics.throughput_per_hour,
-                    "makespan": result.metrics.makespan,
-                    "summary_path": str(written_paths["summary"]),
-                }
-            )
+        seeds = benchmark_config.seeds or (experiment_config.demand.seed,)
+        for seed in seeds:
+            seeded_config = _override_seed(experiment_config, seed)
+            for policy in benchmark_config.policies:
+                policy_config = _override_policy(seeded_config, policy)
+                run_output_dir = benchmark_root / experiment_config.name / f"seed_{seed}" / policy
+                result, written_paths = run_experiment_from_config(
+                    config=policy_config,
+                    output_dir_override=run_output_dir,
+                    force_write_plots=(
+                        benchmark_config.write_plots if force_write_plots is None else force_write_plots
+                    ),
+                )
+                summary_rows.append(
+                    {
+                        "scenario_name": experiment_config.name,
+                        "scenario_config": str(scenario_path),
+                        "seed": seed,
+                        "policy": policy,
+                        "execution_model": policy_config.simulation.execution_model,
+                        "tasks_generated": result.metrics.tasks_generated,
+                        "tasks_completed": result.metrics.tasks_completed,
+                        "tasks_unassigned": result.metrics.tasks_unassigned,
+                        "average_waiting_time": result.metrics.average_waiting_time,
+                        "average_turnaround_time": result.metrics.average_turnaround_time,
+                        "average_travel_distance_per_task": result.metrics.average_travel_distance_per_task,
+                        "realized_travel_time_total": result.metrics.realized_travel_time_total,
+                        "realized_travel_distance_total": result.metrics.realized_travel_distance_total,
+                        "congestion_delay_total": result.metrics.congestion_delay_total,
+                        "average_congestion_delay_per_completed_task": (
+                            result.metrics.average_congestion_delay_per_completed_task
+                        ),
+                        "blocked_traversal_events_total": result.metrics.blocked_traversal_events_total,
+                        "average_queue_length": result.metrics.average_queue_length,
+                        "throughput_per_hour": result.metrics.throughput_per_hour,
+                        "makespan": result.metrics.makespan,
+                        "summary_path": str(written_paths["summary"]),
+                    }
+                )
 
     aggregate_paths = write_benchmark_report(
         output_dir=benchmark_root,
@@ -78,6 +90,10 @@ def _override_policy(config: ExperimentConfig, policy: str) -> ExperimentConfig:
     return replace(config, simulation=replace(config.simulation, policy=policy))
 
 
+def _override_seed(config: ExperimentConfig, seed: int) -> ExperimentConfig:
+    return replace(config, demand=replace(config.demand, seed=seed))
+
+
 def _resolve_benchmark_paths(config: BenchmarkConfig, config_dir: Path) -> BenchmarkConfig:
     resolved_paths = tuple(
         path if path.is_absolute() else (config_dir / path).resolve()
@@ -85,4 +101,3 @@ def _resolve_benchmark_paths(config: BenchmarkConfig, config_dir: Path) -> Bench
     )
     resolved_output = config.output_dir if config.output_dir.is_absolute() else (config_dir / config.output_dir).resolve()
     return replace(config, scenario_configs=resolved_paths, output_dir=resolved_output)
-

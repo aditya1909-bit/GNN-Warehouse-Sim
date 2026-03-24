@@ -16,6 +16,8 @@ class RobotMetrics:
     idle_time: float
     travel_time: float
     travel_distance: float
+    congestion_delay_time: float
+    blocked_traversal_events: int
 
 
 @dataclass(frozen=True)
@@ -28,8 +30,12 @@ class SimulationMetrics:
     average_waiting_time: float | None
     average_turnaround_time: float | None
     average_travel_distance_per_task: float | None
+    realized_travel_time_total: float
+    realized_travel_distance_total: float
+    congestion_delay_total: float
+    average_congestion_delay_per_completed_task: float | None
+    blocked_traversal_events_total: int
     average_queue_length: float
     throughput_per_hour: float
     makespan: float
     robot_metrics: tuple[RobotMetrics, ...]
-

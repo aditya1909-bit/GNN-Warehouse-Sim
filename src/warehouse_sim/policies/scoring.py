@@ -5,8 +5,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from math import isfinite
 
+from warehouse_sim.graph import WarehouseEdge
 from warehouse_sim.policies.base import DispatchDecision, DispatchPolicy
-from warehouse_sim.policies.observation import DispatchContext, RobotObservation, TaskObservation
+from warehouse_sim.policies.observation import (
+    CongestionObservation,
+    DispatchContext,
+    RobotObservation,
+    TaskObservation,
+)
 
 
 SUPPORTED_CANDIDATE_FEATURES = (
@@ -29,6 +35,13 @@ SUPPORTED_CANDIDATE_FEATURES = (
     "idle_robot_count",
     "busy_robot_count",
     "mean_ready_task_age",
+    "average_robot_time_until_available",
+    "active_reserved_edge_count",
+    "active_reserved_node_count",
+    "estimated_pickup_congestion_delay",
+    "estimated_dropoff_congestion_delay",
+    "estimated_pickup_blocked_segments",
+    "estimated_dropoff_blocked_segments",
 )
 
 
@@ -124,6 +137,48 @@ def build_candidate_assignment_observations(
         robot_observation = robot_by_id[robot_state.spec.robot_id]
         for task in context.ready_tasks:
             task_observation = task_by_id[task.task_id]
+            pickup_path = context.environment.shortest_path(
+                robot_state.current_node,
+                task.pickup_node,
+                weight="travel_time",
+            )
+            pickup_edges = context.environment.shortest_path_edges(
+                robot_state.current_node,
+                task.pickup_node,
+                weight="travel_time",
+            )
+            travel_to_pickup_time = (
+                context.environment.path_travel_time(pickup_path) / robot_state.spec.speed_multiplier
+            )
+            estimated_pickup_delay, estimated_pickup_blocked_segments = _estimate_congestion(
+                path_edges=pickup_edges,
+                path_nodes=pickup_path,
+                congestion_observation=context.congestion_observation,
+                start_time=context.current_time,
+                speed_multiplier=robot_state.spec.speed_multiplier,
+            )
+            dropoff_path = context.environment.shortest_path(
+                task.pickup_node,
+                task.dropoff_node,
+                weight="travel_time",
+            )
+            dropoff_edges = context.environment.shortest_path_edges(
+                task.pickup_node,
+                task.dropoff_node,
+                weight="travel_time",
+            )
+            estimated_dropoff_delay, estimated_dropoff_blocked_segments = _estimate_congestion(
+                path_edges=dropoff_edges,
+                path_nodes=dropoff_path,
+                congestion_observation=context.congestion_observation,
+                start_time=(
+                    context.current_time
+                    + travel_to_pickup_time
+                    + estimated_pickup_delay
+                    + task.service_time_estimate
+                ),
+                speed_multiplier=robot_state.spec.speed_multiplier,
+            )
             candidates.append(
                 CandidateAssignmentObservation(
                     robot_id=robot_state.spec.robot_id,
@@ -138,14 +193,12 @@ def build_candidate_assignment_observations(
                         context=context,
                         robot_observation=robot_observation,
                         task_observation=task_observation,
-                        travel_to_pickup_time=(
-                            context.environment.travel_time(robot_state.current_node, task.pickup_node)
-                            / robot_state.spec.speed_multiplier
-                        ),
-                        travel_to_pickup_distance=context.environment.distance(
-                            robot_state.current_node,
-                            task.pickup_node,
-                        ),
+                        travel_to_pickup_time=travel_to_pickup_time,
+                        travel_to_pickup_distance=context.environment.path_distance(pickup_path),
+                        estimated_pickup_delay=estimated_pickup_delay,
+                        estimated_dropoff_delay=estimated_dropoff_delay,
+                        estimated_pickup_blocked_segments=estimated_pickup_blocked_segments,
+                        estimated_dropoff_blocked_segments=estimated_dropoff_blocked_segments,
                     ),
                 )
             )
@@ -168,6 +221,10 @@ def _candidate_feature_values(
     task_observation: TaskObservation,
     travel_to_pickup_time: float,
     travel_to_pickup_distance: float,
+    estimated_pickup_delay: float,
+    estimated_dropoff_delay: float,
+    estimated_pickup_blocked_segments: int,
+    estimated_dropoff_blocked_segments: int,
 ) -> dict[str, float]:
     return {
         "travel_to_pickup_time": travel_to_pickup_time,
@@ -189,8 +246,66 @@ def _candidate_feature_values(
         "idle_robot_count": float(context.global_observation.idle_robot_count),
         "busy_robot_count": float(context.global_observation.busy_robot_count),
         "mean_ready_task_age": context.global_observation.mean_ready_task_age,
+        "average_robot_time_until_available": context.global_observation.average_robot_time_until_available,
+        "active_reserved_edge_count": float(context.global_observation.active_reserved_edge_count),
+        "active_reserved_node_count": float(context.global_observation.active_reserved_node_count),
+        "estimated_pickup_congestion_delay": estimated_pickup_delay,
+        "estimated_dropoff_congestion_delay": estimated_dropoff_delay,
+        "estimated_pickup_blocked_segments": float(estimated_pickup_blocked_segments),
+        "estimated_dropoff_blocked_segments": float(estimated_dropoff_blocked_segments),
     }
 
 
 def _descending_string_key(value: str) -> str:
     return "".join(chr(255 - ord(char)) for char in value)
+
+
+def _estimate_congestion(
+    *,
+    path_edges: tuple[WarehouseEdge, ...],
+    path_nodes: tuple[str, ...],
+    congestion_observation: CongestionObservation,
+    start_time: float,
+    speed_multiplier: float,
+) -> tuple[float, int]:
+    if congestion_observation.execution_model == "idealized":
+        return 0.0, 0
+    if congestion_observation.execution_model == "reserved_edges":
+        edge_reserved_until = {
+            _parse_arc_id(reservation.resource_id): reservation.reserved_until
+            for reservation in congestion_observation.edge_reservations
+        }
+        current_time = start_time
+        total_delay = 0.0
+        blocked_segments = 0
+        for edge in path_edges:
+            departure_time = max(current_time, edge_reserved_until.get((edge.source, edge.target), 0.0))
+            if departure_time > current_time:
+                total_delay += departure_time - current_time
+                blocked_segments += 1
+            current_time = departure_time + (edge.travel_time / speed_multiplier)
+        return total_delay, blocked_segments
+    if congestion_observation.execution_model == "reserved_nodes":
+        node_reserved_until = {
+            reservation.resource_id: reservation.reserved_until
+            for reservation in congestion_observation.node_reservations
+        }
+        current_time = start_time
+        total_delay = 0.0
+        blocked_segments = 0
+        for edge in path_edges:
+            earliest_arrival = current_time + (edge.travel_time / speed_multiplier)
+            entry_time = max(earliest_arrival, node_reserved_until.get(edge.target, 0.0))
+            if entry_time > earliest_arrival:
+                total_delay += entry_time - earliest_arrival
+                blocked_segments += 1
+            current_time = entry_time
+        return total_delay, blocked_segments
+    raise CandidateScoringError(
+        f"Unsupported congestion observation execution_model: {congestion_observation.execution_model}"
+    )
+
+
+def _parse_arc_id(value: str) -> tuple[str, str]:
+    source, target = value.split("->", maxsplit=1)
+    return source, target

@@ -4,6 +4,7 @@ from warehouse_sim.simulation.benchmark import run_benchmark_from_config, run_be
 from warehouse_sim.simulation.engine import run_simulation
 from warehouse_sim.simulation.models import (
     DispatchTraceRecord,
+    ExecutionModel,
     QueueSnapshot,
     SimulationConfig,
     SimulationResult,
@@ -13,6 +14,7 @@ from warehouse_sim.simulation.runner import run_experiment_from_config, run_expe
 
 __all__ = [
     "DispatchTraceRecord",
+    "ExecutionModel",
     "QueueSnapshot",
     "SimulationConfig",
     "SimulationResult",

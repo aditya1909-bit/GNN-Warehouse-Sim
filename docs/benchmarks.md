@@ -1,31 +1,38 @@
 # Benchmarks
 
-## Stage 5 Scope
+## Scope
 
-Stage 5 adds richer scenario presets and a benchmark workflow for comparing baseline policies.
+Benchmarks still run config-driven scenario/policy combinations, but the scenario set now includes contention-focused presets and congestion-sensitive metrics.
 
-- scenario preset configs under `configs/scenarios/`
-- a benchmark manifest under `configs/policy_benchmark.toml`
-- a benchmark runner that executes all scenario-policy combinations
-- aggregate comparison outputs in CSV and JSON
+## Included Benchmark Manifests
 
-## Included Scenarios
+- `configs/policy_benchmark.toml`: general baseline comparison across the original synthetic scenarios
+- `configs/congestion_policy_benchmark.toml`: contention-focused comparison across interaction-heavy scenarios
 
-The current preset set is intentionally small but varied.
+## Contention-Focused Scenarios
 
-- `peak_load`: higher arrival intensity with a rush window
-- `one_way_flow`: one-way aisle segments in the grid
-- `blocked_cross_aisle`: static blocked cells that force detours
+- `narrow_bottleneck`: forced chokepoint in the middle of the layout
+- `high_fleet_density`: more robots relative to grid size
+- `asymmetric_flow`: directional corridor pressure
+- `station_queueing`: repeated arrivals into a shared destination area using node reservations
 
-These are still synthetic scenarios. They are not yet calibrated to a real warehouse.
+These are still synthetic research scenarios, not calibrated operational warehouse models.
 
 ## Benchmark Outputs
 
-A benchmark run writes:
+Each run still writes its per-run experiment artifacts plus:
 
-- per-run experiment artifacts under scenario/policy subdirectories
 - `benchmark_summary.csv`
 - `benchmark_summary.json`
 
-The aggregate report records throughput, waiting time, turnaround time, travel distance, queue length, makespan, and the path to each per-run summary.
+The aggregate rows now include congestion-aware metrics such as:
 
+- realized travel time total
+- realized travel distance total
+- congestion delay total
+- average congestion delay per completed task
+- blocked traversal events total
+
+## Repeated Seeds
+
+The benchmark manifest now supports optional `benchmark.seeds`. When provided, the runner repeats each scenario/policy combination across those demand seeds while keeping the rest of the scenario config fixed.

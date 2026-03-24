@@ -11,13 +11,14 @@ from warehouse_sim.demand import DemandGenerationConfig, generate_task_demand
 from warehouse_sim.environment import WarehouseEnvironment
 from warehouse_sim.graph import NodeType, SyntheticGridLayoutConfig, build_synthetic_grid_layout
 from warehouse_sim.policies import (
+    CongestionAwareNearestRobotTaskPolicy,
     FIFODispatchPolicy,
     NearestRobotTaskPolicy,
     NearestTaskForIdleRobotPolicy,
     RandomDispatchPolicy,
 )
 from warehouse_sim.simulation.engine import run_simulation
-from warehouse_sim.simulation.models import SimulationConfig
+from warehouse_sim.simulation.models import ExecutionModel, SimulationConfig
 from warehouse_sim.tasks import DemandTaskAdapterConfig, tasks_from_demand_records
 
 
@@ -27,8 +28,19 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run the baseline warehouse simulation.")
     parser.add_argument(
         "--policy",
-        choices=("fifo", "random", "nearest_robot_task", "nearest_task_for_idle_robot"),
+        choices=(
+            "fifo",
+            "random",
+            "nearest_robot_task",
+            "nearest_task_for_idle_robot",
+            "congestion_aware_nearest_robot_task",
+        ),
         default="fifo",
+    )
+    parser.add_argument(
+        "--execution-model",
+        choices=tuple(model.value for model in ExecutionModel),
+        default=ExecutionModel.IDEALIZED.value,
     )
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--robots", type=int, default=2)
@@ -101,7 +113,10 @@ def main(argv: Sequence[str] | None = None) -> None:
         tasks=tasks,
         robots=robots,
         dispatch_policy=_build_policy(args.policy, args.seed),
-        config=SimulationConfig(horizon_seconds=args.horizon_seconds),
+        config=SimulationConfig(
+            horizon_seconds=args.horizon_seconds,
+            execution_model=ExecutionModel(args.execution_model),
+        ),
     )
 
     print(f"Policy: {result.policy_name}")
@@ -126,6 +141,8 @@ def _build_policy(policy_name: str, seed: int):
         return RandomDispatchPolicy(seed=seed)
     if policy_name == "nearest_robot_task":
         return NearestRobotTaskPolicy()
+    if policy_name == "congestion_aware_nearest_robot_task":
+        return CongestionAwareNearestRobotTaskPolicy()
     return NearestTaskForIdleRobotPolicy()
 
 

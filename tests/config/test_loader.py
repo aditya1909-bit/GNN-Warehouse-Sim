@@ -16,6 +16,7 @@ def test_load_baseline_experiment_config() -> None:
     assert config.demand.horizon_seconds == 600.0
     assert config.robots.count == 2
     assert config.simulation.policy == "fifo"
+    assert config.simulation.execution_model == "idealized"
     assert config.reporting.output_dir.as_posix().endswith("outputs/baseline_fifo")
     assert config.reporting.write_observation_dataset is False
 
@@ -27,3 +28,11 @@ def test_load_linear_assignment_experiment_config() -> None:
     assert config.simulation.policy == "linear_assignment_model"
     assert config.policy_model is not None
     assert config.policy_model.weights["task_age"] == 0.5
+
+
+def test_load_congestion_scenario_config() -> None:
+    config_path = Path(__file__).resolve().parents[2] / "configs" / "scenarios" / "narrow_bottleneck.toml"
+    config = load_experiment_config(config_path)
+
+    assert config.name == "narrow_bottleneck"
+    assert config.simulation.execution_model == "reserved_edges"

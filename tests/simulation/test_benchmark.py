@@ -22,9 +22,24 @@ def test_run_benchmark_from_manifest(tmp_path: Path) -> None:
 
     payload = json.loads(written["summary_json"].read_text(encoding="utf-8"))
     assert payload["benchmark_name"] == "baseline_policy_benchmark"
-    assert len(payload["runs"]) == 12
+    assert len(payload["runs"]) == 15
     assert set(payload["best_by_scenario"]) == {
         "peak_load",
         "one_way_flow",
         "blocked_cross_aisle",
     }
+
+
+def test_run_congestion_benchmark_manifest(tmp_path: Path) -> None:
+    config_path = Path(__file__).resolve().parents[2] / "configs" / "congestion_policy_benchmark.toml"
+
+    written = run_benchmark_from_path(
+        benchmark_config_path=config_path,
+        benchmark_root_override=tmp_path,
+        force_write_plots=False,
+    )
+
+    payload = json.loads(written["summary_json"].read_text(encoding="utf-8"))
+    assert payload["benchmark_name"] == "congestion_policy_benchmark"
+    assert len(payload["runs"]) == 12
+    assert "narrow_bottleneck" in payload["best_by_scenario"]

@@ -11,6 +11,31 @@ from warehouse_sim.tasks import Task
 
 
 @dataclass(frozen=True)
+class ResourceReservationObservation:
+    """Active reservation on a simplified node or directed edge resource."""
+
+    resource_id: str
+    reserved_until: float
+
+
+@dataclass(frozen=True)
+class CongestionObservation:
+    """Dispatch-time summary of currently active resource reservations."""
+
+    execution_model: str
+    edge_reservations: tuple[ResourceReservationObservation, ...] = ()
+    node_reservations: tuple[ResourceReservationObservation, ...] = ()
+
+    @property
+    def active_reserved_edge_count(self) -> int:
+        return len(self.edge_reservations)
+
+    @property
+    def active_reserved_node_count(self) -> int:
+        return len(self.node_reservations)
+
+
+@dataclass(frozen=True)
 class RobotObservation:
     """Feature view of a robot at a dispatch decision point."""
 
@@ -60,6 +85,10 @@ class GlobalObservation:
     busy_robot_count: int
     mean_ready_task_age: float
     max_robot_available_time: float
+    average_robot_time_until_available: float
+    execution_model: str
+    active_reserved_edge_count: int
+    active_reserved_node_count: int
 
 
 @dataclass(frozen=True)
@@ -76,6 +105,7 @@ class DispatchContext:
     robot_observations: tuple[RobotObservation, ...]
     task_observations: tuple[TaskObservation, ...]
     global_observation: GlobalObservation
+    congestion_observation: CongestionObservation
 
 
 class DispatchContextBuilder:
@@ -97,6 +127,8 @@ class DispatchContextBuilder:
         current_time: float,
         robot_states: tuple[RobotState, ...],
         pending_tasks: tuple[Task, ...],
+        congestion_observation: CongestionObservation | None = None,
+        execution_model: str = "idealized",
     ) -> DispatchContext:
         """Build the dispatch context for the current simulation time."""
 
@@ -132,6 +164,8 @@ class DispatchContextBuilder:
             idle_robots=idle_robots,
             busy_robots=busy_robots,
             robot_states=robot_states,
+            execution_model=execution_model,
+            congestion_observation=congestion_observation or CongestionObservation(execution_model=execution_model),
         )
         return DispatchContext(
             current_time=current_time,
@@ -144,6 +178,7 @@ class DispatchContextBuilder:
             robot_observations=robot_observations,
             task_observations=task_observations,
             global_observation=global_observation,
+            congestion_observation=congestion_observation or CongestionObservation(execution_model=execution_model),
         )
 
     def _build_robot_observation(self, current_time: float, robot: RobotState) -> RobotObservation:
@@ -188,12 +223,19 @@ class DispatchContextBuilder:
         idle_robots: tuple[RobotState, ...],
         busy_robots: tuple[RobotState, ...],
         robot_states: tuple[RobotState, ...],
+        execution_model: str,
+        congestion_observation: CongestionObservation,
     ) -> GlobalObservation:
         mean_ready_task_age = 0.0
         if ready_tasks:
             mean_ready_task_age = sum(current_time - task.release_time for task in ready_tasks) / len(ready_tasks)
 
         max_robot_available_time = max((robot.available_time for robot in robot_states), default=current_time)
+        average_robot_time_until_available = 0.0
+        if robot_states:
+            average_robot_time_until_available = sum(
+                max(robot.available_time - current_time, 0.0) for robot in robot_states
+            ) / len(robot_states)
         return GlobalObservation(
             current_time=current_time,
             pending_task_count=len(ready_tasks) + len(future_tasks),
@@ -203,4 +245,8 @@ class DispatchContextBuilder:
             busy_robot_count=len(busy_robots),
             mean_ready_task_age=mean_ready_task_age,
             max_robot_available_time=max_robot_available_time,
+            average_robot_time_until_available=average_robot_time_until_available,
+            execution_model=execution_model,
+            active_reserved_edge_count=congestion_observation.active_reserved_edge_count,
+            active_reserved_node_count=congestion_observation.active_reserved_node_count,
         )

@@ -15,6 +15,7 @@ from warehouse_sim.metrics import (
     write_simulation_report,
 )
 from warehouse_sim.policies import (
+    CongestionAwareNearestRobotTaskPolicy,
     FIFODispatchPolicy,
     LinearScoringDispatchPolicy,
     NearestRobotTaskPolicy,
@@ -22,7 +23,7 @@ from warehouse_sim.policies import (
     RandomDispatchPolicy,
 )
 from warehouse_sim.simulation.engine import run_simulation
-from warehouse_sim.simulation.models import SimulationConfig, SimulationResult
+from warehouse_sim.simulation.models import ExecutionModel, SimulationConfig, SimulationResult
 from warehouse_sim.tasks import DemandTaskAdapterConfig, tasks_from_demand_records
 
 
@@ -97,6 +98,7 @@ def run_experiment_from_config(
         config=SimulationConfig(
             horizon_seconds=config.simulation.horizon_seconds,
             continue_until_all_tasks_complete=config.simulation.continue_until_all_tasks_complete,
+            execution_model=ExecutionModel(config.simulation.execution_model),
         ),
     )
 
@@ -151,6 +153,8 @@ def _build_policy(config: ExperimentConfig):
         return NearestRobotTaskPolicy()
     if policy_name == "nearest_task_for_idle_robot":
         return NearestTaskForIdleRobotPolicy()
+    if policy_name == "congestion_aware_nearest_robot_task":
+        return CongestionAwareNearestRobotTaskPolicy()
     if policy_name == "linear_assignment_model":
         assert config.policy_model is not None
         return LinearScoringDispatchPolicy(

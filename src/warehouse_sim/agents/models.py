@@ -40,6 +40,8 @@ class RobotState:
     total_idle_time: float = 0.0
     total_travel_time: float = 0.0
     total_travel_distance: float = 0.0
+    total_congestion_delay: float = 0.0
+    blocked_traversal_events: int = 0
     completed_task_ids: list[str] = field(default_factory=list)
 
     @classmethod
@@ -51,4 +53,3 @@ class RobotState:
             current_node=spec.initial_node,
             available_time=spec.available_from,
         )
-

@@ -1,60 +1,51 @@
 # Simulation Baseline
 
-## Stage 3 Scope
+## Current Scope
 
-Stage 3 adds the first working simulation loop. It is intentionally minimal, but it is no longer placeholder code.
+The simulator is still a discrete-event dispatch baseline, but it now has two execution-fidelity layers:
 
-- explicit robot definitions
-- baseline dispatch policies
-- a discrete-event execution loop
-- run-level metrics
-- a thin CLI for baseline simulation runs
+- `idealized`: original independent shortest-path travel calculations
+- `reserved_edges` / `reserved_nodes`: realized route execution with simplified shared-resource contention
 
-## Why Discrete-Event
+## Process Overview
 
-This project now uses a discrete-event baseline instead of a time-stepped loop because the current process is dominated by sparse state changes:
+At each event time:
 
-- task releases
-- robot assignment starts
-- robot availability after travel and service
+1. Ready tasks and idle robots are collected.
+2. The dispatch policy selects one robot-task pairing at a time.
+3. The engine materializes a shortest path from robot to pickup and pickup to dropoff.
+4. The execution model converts those paths into realized timing.
+5. The robot remains unavailable until realized completion.
+6. The simulation advances to the next task release or robot availability event.
 
-Advancing directly between these events keeps the baseline explainable and avoids unnecessary per-timestep bookkeeping before congestion and richer dynamics are introduced.
+## What Changes In Stage 9
 
-## Process Overview And Scheduling
+- Travel is no longer only a scalar shortest-path cost.
+- Completed executions now carry explicit route node/arc sequences.
+- Congestion-aware modes can add waiting when a reserved edge or node is unavailable.
+- Those waits affect robot availability, queueing, turnaround time, and benchmark outcomes.
 
-For the current baseline:
+## What The Reservation Models Are
 
-1. Tasks exist with explicit release times.
-2. Robots become idle when their assigned work completes.
-3. At each event time, all ready tasks and idle robots are considered.
-4. The chosen dispatch policy emits one robot-task pairing at a time.
-5. The engine computes travel to pickup, service time, and travel to dropoff.
-6. The robot becomes unavailable until task completion.
-7. The simulation advances to the next task release or robot availability event.
+- `reserved_edges`: only one robot may traverse a directed edge segment at a time.
+- `reserved_nodes`: nodes behave as single-robot resources, including station-like occupancy during service.
 
-This keeps the baseline deterministic once the demand sample, layout, robot definitions, and policy seed are fixed.
+These are simplified reservation models. They do not replan globally and should not be described as MAPF.
 
-## Baseline Policies
+## Metrics Affected
 
-Implemented now:
+The simulator still reports completion, waiting, turnaround, queue length, throughput, and utilization. It now also reports:
 
-- `fifo`
-- `random`
-- `nearest_robot_task`
-- `nearest_task_for_idle_robot`
-
-These are non-learning baselines intended to remain available after future GNN policies are added.
+- realized travel time total
+- realized travel distance total
+- congestion delay total
+- average congestion delay per completed task
+- blocked traversal events total
 
 ## Current Simplifications
 
-The current engine still omits several warehouse dynamics by design.
-
-- no collisions or congestion
+- no full MAPF or optimal conflict resolution
+- no congestion-aware rerouting after assignment
 - no battery constraints
-- no path reservation or MAPF logic
-- no robot failures or task preemption
-- no partial task execution state
-- no stochastic service-time realization separate from the task estimate
-
-Those belong in later stages once the baseline interfaces stabilize.
-
+- no robot failures or preemption
+- no learned dispatch policy

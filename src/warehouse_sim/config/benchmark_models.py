@@ -17,6 +17,7 @@ class BenchmarkConfig:
     policies: tuple[str, ...]
     output_dir: Path
     write_plots: bool = False
+    seeds: tuple[int, ...] | None = None
 
     def __post_init__(self) -> None:
         if not self.name:
@@ -25,4 +26,5 @@ class BenchmarkConfig:
             raise ConfigValidationError("benchmark.scenario_configs must be non-empty.")
         if not self.policies:
             raise ConfigValidationError("benchmark.policies must be non-empty.")
-
+        if self.seeds is not None and not self.seeds:
+            raise ConfigValidationError("benchmark.seeds must be non-empty.")

@@ -1,0 +1,15 @@
+[benchmark]
+name = "congestion_policy_benchmark"
+scenario_configs = [
+  "scenarios/narrow_bottleneck.toml",
+  "scenarios/high_fleet_density.toml",
+  "scenarios/asymmetric_flow.toml",
+  "scenarios/station_queueing.toml",
+]
+policies = [
+  "fifo",
+  "nearest_robot_task",
+  "congestion_aware_nearest_robot_task",
+]
+output_dir = "outputs/benchmarks/congestion_policy_benchmark"
+write_plots = false
