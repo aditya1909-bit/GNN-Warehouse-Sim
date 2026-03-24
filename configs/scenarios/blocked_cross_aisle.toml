@@ -1,0 +1,45 @@
+name = "blocked_cross_aisle"
+
+[layout]
+rows = 4
+columns = 4
+edge_length = 1.0
+travel_speed = 1.0
+storage_cell = [0, 0]
+dropoff_cell = [3, 3]
+staging_cell = [3, 0]
+blocked_cells = [[1, 1], [1, 2], [2, 1]]
+directed_edges = []
+
+[demand]
+horizon_seconds = 900.0
+mean_interval = 100.0
+seed = 17
+min_tasks = 0
+rush_start = 900.0
+rush_end = 900.0
+lunch_start = 900.0
+lunch_end = 900.0
+rush_multiplier = 1.0
+
+[robots]
+count = 2
+speed_multiplier = 1.0
+initial_zone = "staging_zone"
+
+[tasks]
+default_pickup_zone = "storage_zone"
+default_dropoff_zone = "dropoff_zone"
+default_task_type = "pick"
+default_priority = 1
+default_service_time_estimate = 60.0
+task_id_prefix = "task"
+
+[simulation]
+policy = "fifo"
+horizon_seconds = 900.0
+continue_until_all_tasks_complete = true
+
+[reporting]
+output_dir = "outputs/scenarios/blocked_cross_aisle"
+write_plots = false

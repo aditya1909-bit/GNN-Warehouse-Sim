@@ -1,0 +1,15 @@
+[benchmark]
+name = "baseline_policy_benchmark"
+scenario_configs = [
+  "scenarios/peak_load.toml",
+  "scenarios/one_way_flow.toml",
+  "scenarios/blocked_cross_aisle.toml",
+]
+policies = [
+  "fifo",
+  "random",
+  "nearest_robot_task",
+  "nearest_task_for_idle_robot",
+]
+output_dir = "outputs/benchmarks/baseline_policy_benchmark"
+write_plots = false
