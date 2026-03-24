@@ -2,7 +2,7 @@
 
 ## Scope
 
-Experiments remain TOML-driven and backward compatible. Stage 9 extends the existing schema rather than replacing it.
+Experiments remain TOML-driven and backward compatible. Stage 10 extends the existing schema rather than replacing it.
 
 ## Config Sections
 
@@ -11,6 +11,7 @@ Experiments remain TOML-driven and backward compatible. Stage 9 extends the exis
 - `robots`
 - `tasks`
 - `simulation`
+- `policy_model` when a policy needs weights or an artifact
 - `reporting`
 
 ## New Simulation Setting
@@ -31,6 +32,25 @@ execution_model = "reserved_edges"
 ```
 
 If `execution_model` is omitted, the default remains `idealized`.
+
+## Trained Artifact Policies
+
+The experiment layer now supports both hand-configured and trained candidate scorers:
+
+- `linear_assignment_model`: hand-configured named weights
+- `trained_linear_model`: load a fitted linear artifact
+- `trained_mlp_model`: load a fitted MLP artifact
+
+Example:
+
+```toml
+[simulation]
+policy = "trained_linear_model"
+execution_model = "reserved_edges"
+
+[policy_model]
+artifact_path = "artifacts/models/linear_dispatch_model.json"
+```
 
 ## Outputs
 

@@ -96,6 +96,9 @@ def load_experiment_config(path: Path) -> ExperimentConfig:
         else PolicyModelConfig(
             bias=float(policy_model.get("bias", 0.0)),
             weights={str(key): float(value) for key, value in policy_model.get("weights", {}).items()},
+            artifact_path=None
+            if policy_model.get("artifact_path") is None
+            else (path.parent / Path(str(policy_model["artifact_path"]))).resolve(),
         ),
     )
 

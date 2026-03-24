@@ -2,10 +2,7 @@
 
 ## Purpose
 
-This stage exports training-ready observation data from the existing baseline
-simulator. It does not train a model. It captures what the simulator actually
-saw at each dispatch decision so later learned policies can start from a stable,
-auditable dataset contract.
+This stage exports and consumes training-ready observation data from the existing baseline simulator. The learning pipeline still starts from what the simulator actually saw at each dispatch decision. It does not introduce a disconnected replay format or a separate policy interface.
 
 ## Files Written
 
@@ -41,10 +38,26 @@ Each dispatch row includes:
   static within an experiment run.
 - Reuse the same observation contracts already used by the policy API so the
   dataset format stays aligned with live simulation state.
+- Keep dataset manifests lightweight and explicit so multiple runs can be
+  combined later for grouped splitting by dispatch event, run, or scenario.
+
+## Offline Learning Contract
+
+Stage 10 builds the canonical offline loader around this dispatch-row contract:
+
+- labels: `is_selected`
+- dispatch grouping: `dispatch_group_id` derived from run metadata plus `dispatch_index`
+- metadata: ids, nodes, zones, timing, scenario/run metadata
+- numeric candidate features: the same named feature set used by live scoring policies
+
+The loader accepts a single `dispatch_observations.csv`, a single
+`dataset_manifest.json`, or a directory tree containing multiple manifests.
+That makes it possible to fit or evaluate a model across repeated runs without
+inventing a second dataset format.
 
 ## Current Limits
 
 - No replay buffer or episode serialization
 - No action masking beyond the exported candidate rows
-- No tensor serialization format yet
-- No learned-policy trainer or evaluator yet
+- No graph-tensor training format yet
+- No graph-neural dispatch model

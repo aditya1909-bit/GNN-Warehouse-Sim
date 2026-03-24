@@ -5,43 +5,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 from math import isfinite
 
+import numpy as np
+
+from warehouse_sim.candidate_features import SUPPORTED_CANDIDATE_FEATURES
 from warehouse_sim.graph import WarehouseEdge
+from warehouse_sim.learning.artifacts import DispatchModelArtifact
 from warehouse_sim.policies.base import DispatchDecision, DispatchPolicy
 from warehouse_sim.policies.observation import (
     CongestionObservation,
     DispatchContext,
     RobotObservation,
     TaskObservation,
-)
-
-
-SUPPORTED_CANDIDATE_FEATURES = (
-    "travel_to_pickup_time",
-    "travel_to_pickup_distance",
-    "pickup_to_dropoff_time",
-    "pickup_to_dropoff_distance",
-    "task_age",
-    "task_priority",
-    "task_service_time_estimate",
-    "robot_speed_multiplier",
-    "robot_completed_task_count",
-    "robot_total_busy_time",
-    "robot_total_idle_time",
-    "robot_total_travel_time",
-    "robot_total_travel_distance",
-    "pending_task_count",
-    "ready_task_count",
-    "future_task_count",
-    "idle_robot_count",
-    "busy_robot_count",
-    "mean_ready_task_age",
-    "average_robot_time_until_available",
-    "active_reserved_edge_count",
-    "active_reserved_node_count",
-    "estimated_pickup_congestion_delay",
-    "estimated_dropoff_congestion_delay",
-    "estimated_pickup_blocked_segments",
-    "estimated_dropoff_blocked_segments",
 )
 
 
@@ -100,27 +74,45 @@ class LinearScoringDispatchPolicy(DispatchPolicy):
         if not candidates:
             return None
 
-        best_candidate: CandidateAssignmentObservation | None = None
-        best_ranking: tuple[float, float, float, str, str] | None = None
-        for candidate in candidates:
-            score = candidate.linear_score(self._weights, self._bias)
-            ranking = (
-                score,
-                -candidate.feature("travel_to_pickup_time"),
-                candidate.feature("task_age"),
-                _descending_string_key(candidate.robot_id),
-                _descending_string_key(candidate.task_id),
-            )
-            if best_ranking is None or ranking > best_ranking:
-                best_ranking = ranking
-                best_candidate = candidate
-
-        assert best_candidate is not None
+        scores = np.asarray(
+            [candidate.linear_score(self._weights, self._bias) for candidate in candidates],
+            dtype=float,
+        )
+        best_candidate = _select_best_candidate(candidates, scores)
         return DispatchDecision(robot_id=best_candidate.robot_id, task_id=best_candidate.task_id)
 
     def select_assignment(self, idle_robots, ready_tasks, environment):  # type: ignore[override]
         raise CandidateScoringError(
             "LinearScoringDispatchPolicy requires dispatch contexts and should not use the legacy selection path."
+        )
+
+
+class ArtifactScoringDispatchPolicy(DispatchPolicy):
+    """Dispatch policy backed by a trained artifact scorer."""
+
+    def __init__(self, artifact: DispatchModelArtifact, policy_name: str) -> None:
+        self.name = policy_name
+        self._artifact = artifact
+
+    def select_assignment_from_context(self, context: DispatchContext) -> DispatchDecision | None:
+        candidates = build_candidate_assignment_observations(context)
+        if not candidates:
+            return None
+
+        feature_matrix = np.asarray(
+            [
+                [candidate.feature(feature_name) for feature_name in self._artifact.feature_names]
+                for candidate in candidates
+            ],
+            dtype=float,
+        )
+        scores = self._artifact.score_matrix(feature_matrix)
+        best_candidate = _select_best_candidate(candidates, scores)
+        return DispatchDecision(robot_id=best_candidate.robot_id, task_id=best_candidate.task_id)
+
+    def select_assignment(self, idle_robots, ready_tasks, environment):  # type: ignore[override]
+        raise CandidateScoringError(
+            "ArtifactScoringDispatchPolicy requires dispatch contexts and should not use the legacy selection path."
         )
 
 
@@ -258,6 +250,23 @@ def _candidate_feature_values(
 
 def _descending_string_key(value: str) -> str:
     return "".join(chr(255 - ord(char)) for char in value)
+
+
+def _select_best_candidate(
+    candidates: tuple[CandidateAssignmentObservation, ...],
+    scores: np.ndarray,
+) -> CandidateAssignmentObservation:
+    best_index = max(
+        range(len(candidates)),
+        key=lambda index: (
+            float(scores[index]),
+            -candidates[index].feature("travel_to_pickup_time"),
+            candidates[index].feature("task_age"),
+            _descending_string_key(candidates[index].robot_id),
+            _descending_string_key(candidates[index].task_id),
+        ),
+    )
+    return candidates[best_index]
 
 
 def _estimate_congestion(

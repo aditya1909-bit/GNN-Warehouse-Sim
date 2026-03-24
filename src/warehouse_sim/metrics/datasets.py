@@ -20,6 +20,7 @@ def write_observation_dataset(
     environment: WarehouseEnvironment,
     result: "SimulationResult",
     experiment_name: str,
+    dataset_metadata: dict[str, object] | None = None,
 ) -> dict[str, Path]:
     """Write graph features and dispatch traces for policy-learning experiments."""
 
@@ -46,6 +47,8 @@ def write_observation_dataset(
             "dispatch_observations": dispatch_path.name,
         },
     }
+    if dataset_metadata:
+        manifest.update(dataset_metadata)
     manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     return {
         "dataset_manifest": manifest_path,

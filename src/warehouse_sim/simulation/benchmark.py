@@ -6,6 +6,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from warehouse_sim.config import BenchmarkConfig, ExperimentConfig, load_benchmark_config, load_experiment_config
+from warehouse_sim.config.models import PolicyModelConfig
 from warehouse_sim.metrics import write_benchmark_report
 from warehouse_sim.simulation.runner import run_experiment_from_config
 
@@ -26,7 +27,11 @@ def run_benchmark_from_config(
         for seed in seeds:
             seeded_config = _override_seed(experiment_config, seed)
             for policy in benchmark_config.policies:
-                policy_config = _override_policy(seeded_config, policy)
+                policy_config = _override_policy(
+                    seeded_config,
+                    policy,
+                    benchmark_config.policy_artifacts.get(policy),
+                )
                 run_output_dir = benchmark_root / experiment_config.name / f"seed_{seed}" / policy
                 result, written_paths = run_experiment_from_config(
                     config=policy_config,
@@ -86,8 +91,15 @@ def run_benchmark_from_path(
     )
 
 
-def _override_policy(config: ExperimentConfig, policy: str) -> ExperimentConfig:
-    return replace(config, simulation=replace(config.simulation, policy=policy))
+def _override_policy(
+    config: ExperimentConfig,
+    policy: str,
+    artifact_path: Path | None = None,
+) -> ExperimentConfig:
+    policy_model = config.policy_model
+    if artifact_path is not None:
+        policy_model = replace(policy_model, artifact_path=artifact_path) if policy_model is not None else PolicyModelConfig(artifact_path=artifact_path)
+    return replace(config, simulation=replace(config.simulation, policy=policy), policy_model=policy_model)
 
 
 def _override_seed(config: ExperimentConfig, seed: int) -> ExperimentConfig:
@@ -100,4 +112,15 @@ def _resolve_benchmark_paths(config: BenchmarkConfig, config_dir: Path) -> Bench
         for path in config.scenario_configs
     )
     resolved_output = config.output_dir if config.output_dir.is_absolute() else (config_dir / config.output_dir).resolve()
-    return replace(config, scenario_configs=resolved_paths, output_dir=resolved_output)
+    resolved_policy_artifacts = {
+        policy_name: artifact_path
+        if artifact_path.is_absolute()
+        else (config_dir / artifact_path).resolve()
+        for policy_name, artifact_path in config.policy_artifacts.items()
+    }
+    return replace(
+        config,
+        scenario_configs=resolved_paths,
+        output_dir=resolved_output,
+        policy_artifacts=resolved_policy_artifacts,
+    )

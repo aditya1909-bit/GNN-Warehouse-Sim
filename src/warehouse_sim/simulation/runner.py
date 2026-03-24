@@ -9,12 +9,14 @@ from warehouse_sim.config import ExperimentConfig, load_experiment_config
 from warehouse_sim.demand import DemandGenerationConfig, generate_task_demand
 from warehouse_sim.environment import WarehouseEnvironment
 from warehouse_sim.graph import NodeType, SyntheticGridLayoutConfig, build_synthetic_grid_layout
+from warehouse_sim.learning.artifacts import load_dispatch_model_artifact
 from warehouse_sim.metrics import (
     write_default_plots,
     write_observation_dataset,
     write_simulation_report,
 )
 from warehouse_sim.policies import (
+    ArtifactScoringDispatchPolicy,
     CongestionAwareNearestRobotTaskPolicy,
     FIFODispatchPolicy,
     LinearScoringDispatchPolicy,
@@ -121,6 +123,12 @@ def run_experiment_from_config(
                 environment=environment,
                 result=result,
                 experiment_name=config.name,
+                dataset_metadata={
+                    "scenario_name": config.name,
+                    "run_id": f"{config.name}__{config.simulation.policy}__seed_{config.demand.seed}",
+                    "demand_seed": config.demand.seed,
+                    "execution_model": config.simulation.execution_model,
+                },
             )
         )
     return result, written_paths
@@ -161,6 +169,22 @@ def _build_policy(config: ExperimentConfig):
             weights=config.policy_model.weights,
             bias=config.policy_model.bias,
         )
+    if policy_name == "trained_linear_model":
+        assert config.policy_model is not None
+        assert config.policy_model.artifact_path is not None
+        artifact = load_dispatch_model_artifact(config.policy_model.artifact_path)
+        if artifact.model_type != "grouped_linear":
+            raise ValueError(
+                f"Expected grouped_linear artifact for trained_linear_model, got {artifact.model_type}"
+            )
+        return ArtifactScoringDispatchPolicy(artifact=artifact, policy_name=policy_name)
+    if policy_name == "trained_mlp_model":
+        assert config.policy_model is not None
+        assert config.policy_model.artifact_path is not None
+        artifact = load_dispatch_model_artifact(config.policy_model.artifact_path)
+        if artifact.model_type != "grouped_mlp":
+            raise ValueError(f"Expected grouped_mlp artifact for trained_mlp_model, got {artifact.model_type}")
+        return ArtifactScoringDispatchPolicy(artifact=artifact, policy_name=policy_name)
     raise ValueError(f"Unknown policy: {policy_name}")
 
 

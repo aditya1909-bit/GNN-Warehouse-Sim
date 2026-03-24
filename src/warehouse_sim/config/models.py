@@ -93,6 +93,7 @@ class PolicyModelConfig:
 
     bias: float = 0.0
     weights: dict[str, float] = field(default_factory=dict)
+    artifact_path: Path | None = None
 
     def __post_init__(self) -> None:
         for feature_name, weight in self.weights.items():
@@ -102,6 +103,8 @@ class PolicyModelConfig:
                 raise ConfigValidationError(
                     f"policy_model weight for {feature_name} must be numeric."
                 )
+        if self.artifact_path is not None and not str(self.artifact_path):
+            raise ConfigValidationError("policy_model.artifact_path must be non-empty when provided.")
 
 
 @dataclass(frozen=True)
@@ -150,3 +153,12 @@ class ExperimentConfig:
             raise ConfigValidationError(
                 "policy_model must be provided when simulation.policy is linear_assignment_model."
             )
+        if self.simulation.policy == "linear_assignment_model" and not self.policy_model.weights:
+            raise ConfigValidationError(
+                "policy_model.weights must be provided when simulation.policy is linear_assignment_model."
+            )
+        if self.simulation.policy in {"trained_linear_model", "trained_mlp_model"}:
+            if self.policy_model is None or self.policy_model.artifact_path is None:
+                raise ConfigValidationError(
+                    "policy_model.artifact_path must be provided for trained model policies."
+                )

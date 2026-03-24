@@ -16,3 +16,26 @@ def test_load_policy_benchmark_manifest() -> None:
     assert "nearest_robot_task" in config.policies
     assert "congestion_aware_nearest_robot_task" in config.policies
     assert config.seeds is None
+
+
+def test_load_benchmark_manifest_with_policy_artifacts(tmp_path: Path) -> None:
+    config_path = tmp_path / "benchmark.toml"
+    config_path.write_text(
+        """
+[benchmark]
+name = "trained_policy_benchmark"
+scenario_configs = ["scenario.toml"]
+policies = ["fifo", "trained_linear_model"]
+output_dir = "outputs/benchmark"
+seeds = [7, 11]
+
+[benchmark.policy_artifacts]
+trained_linear_model = "artifacts/linear.json"
+""".strip(),
+        encoding="utf-8",
+    )
+
+    config = load_benchmark_config(config_path)
+
+    assert config.policy_artifacts["trained_linear_model"] == Path("artifacts/linear.json")
+    assert config.seeds == (7, 11)

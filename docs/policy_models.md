@@ -2,14 +2,18 @@
 
 ## Purpose
 
-The repository still contains simple, honest dispatch policies. There is no neural model here. The most flexible policy remains a configurable linear scorer over exported/live candidate features.
+The repository still contains simple, honest dispatch policies. Stage 10 adds offline-fitted candidate scorers, but the repository still does not train a GNN and still does not implement RL.
 
 ## Implemented Now
 
 - baseline heuristics: `fifo`, `random`, `nearest_robot_task`, `nearest_task_for_idle_robot`
 - congestion-aware heuristic: `congestion_aware_nearest_robot_task`
 - `linear_assignment_model` dispatch policy
+- `trained_linear_model` artifact-backed dispatch policy
+- `trained_mlp_model` artifact-backed dispatch policy
 - named scalar feature weights loaded from TOML
+- offline grouped-softmax fitting for the linear scorer
+- one-hidden-layer MLP baseline over the same candidate features
 - validation of unsupported feature names
 
 ## Supported Linear Features
@@ -45,10 +49,26 @@ The repository still contains simple, honest dispatch policies. There is no neur
 
 - The policies run inside the real simulator.
 - The linear scorer and dataset export use the same candidate feature contract.
+- The fitted linear scorer learns those weights from exported dispatch decisions instead of hard-coding them.
+- The MLP baseline is still just a candidate-feature model, which keeps the comparison honest.
 - The congestion-aware heuristic gives a stronger non-learning baseline without pretending to be learned.
 
-## Not Implemented Yet
+## Artifact-Backed Policies
 
-- weight fitting or training
-- neural models
-- offline imitation or reinforcement-learning pipelines
+Experiment configs can now point to a saved artifact:
+
+```toml
+[simulation]
+policy = "trained_linear_model"
+
+[policy_model]
+artifact_path = "artifacts/models/linear_dispatch_model.json"
+```
+
+The trained artifact still scores candidate robot-task pairs independently within a dispatch event and then ranks them. That is not the same thing as a graph policy, MAPF solver, or end-to-end learned coordination controller.
+
+## Not Implemented
+
+- true graph-neural dispatch models
+- RL
+- richer imitation-learning objectives beyond the current grouped candidate-selection fitting

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from warehouse_sim.config.models import ConfigValidationError
@@ -18,6 +18,7 @@ class BenchmarkConfig:
     output_dir: Path
     write_plots: bool = False
     seeds: tuple[int, ...] | None = None
+    policy_artifacts: dict[str, Path] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.name:

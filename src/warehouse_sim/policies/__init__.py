@@ -1,5 +1,6 @@
 """Dispatch policies for the first simulation baseline."""
 
+from warehouse_sim.candidate_features import SUPPORTED_CANDIDATE_FEATURES
 from warehouse_sim.policies.base import DispatchDecision, DispatchPolicy
 from warehouse_sim.policies.baselines import (
     CongestionAwareNearestRobotTaskPolicy,
@@ -18,14 +19,15 @@ from warehouse_sim.policies.observation import (
     TaskObservation,
 )
 from warehouse_sim.policies.scoring import (
+    ArtifactScoringDispatchPolicy,
     CandidateAssignmentObservation,
     CandidateScoringError,
     LinearScoringDispatchPolicy,
-    SUPPORTED_CANDIDATE_FEATURES,
     build_candidate_assignment_observations,
 )
 
 __all__ = [
+    "ArtifactScoringDispatchPolicy",
     "CandidateAssignmentObservation",
     "CandidateScoringError",
     "CongestionAwareNearestRobotTaskPolicy",

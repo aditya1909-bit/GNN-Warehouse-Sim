@@ -25,6 +25,10 @@ def load_benchmark_config(path: Path) -> BenchmarkConfig:
     output_dir = Path(str(benchmark.get("output_dir", "outputs/benchmark")))
     raw_seeds = benchmark.get("seeds")
     seeds = None if raw_seeds is None else tuple(int(item) for item in raw_seeds)
+    policy_artifacts = {
+        str(policy_name): Path(str(artifact_path))
+        for policy_name, artifact_path in benchmark.get("policy_artifacts", {}).items()
+    }
 
     return BenchmarkConfig(
         name=str(benchmark["name"]),
@@ -33,4 +37,5 @@ def load_benchmark_config(path: Path) -> BenchmarkConfig:
         output_dir=output_dir,
         write_plots=bool(benchmark.get("write_plots", False)),
         seeds=seeds,
+        policy_artifacts=policy_artifacts,
     )
