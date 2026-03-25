@@ -33,6 +33,7 @@ class CoordinationMode(StrEnum):
 class CoordinationRuntimeConfig:
     """Runtime settings for integrated coordination mode."""
 
+    motion_model: str = "graph_embedded"
     control_dt: float = 0.25
     replan_period: float = 1.0
     robot_radius: float = 0.2

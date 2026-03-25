@@ -350,6 +350,45 @@ def plan_route_candidate(
     )
 
 
+def plan_motion_candidate(
+    environment: WarehouseEnvironment,
+    *,
+    robot_id: str,
+    start_time: float,
+    speed_multiplier: float,
+    occupancy_table,
+    candidate: MacroCandidate,
+    service_time: float = 0.0,
+    constraints: tuple[ConflictConstraint, ...] = (),
+    motion_model: str = "graph_embedded",
+) -> PlannedMacro | None:
+    """Plan a candidate under the selected integrated motion model."""
+
+    if motion_model == "free_space":
+        from warehouse_sim.integrated.free_space import plan_free_space_candidate
+
+        return plan_free_space_candidate(
+            environment,
+            robot_id=robot_id,
+            start_time=start_time,
+            speed_multiplier=speed_multiplier,
+            occupancy_table=occupancy_table,
+            candidate=candidate,
+            service_time=service_time,
+            constraints=constraints,
+        )
+    return plan_route_candidate(
+        environment,
+        robot_id=robot_id,
+        start_time=start_time,
+        speed_multiplier=speed_multiplier,
+        occupancy_table=occupancy_table,
+        candidate=candidate,
+        service_time=service_time,
+        constraints=constraints,
+    )
+
+
 def detect_collision_events(
     traversals: tuple[TimedTraversal, ...],
     *,
@@ -415,7 +454,6 @@ def solve_exact_mapf_macro_plan(
     It is not a global warehouse-task optimality guarantee across future task releases.
     """
 
-    del config  # The exact search uses the same continuous occupancy semantics directly.
     task_by_id = {task.task_id: task for task in tasks}
     assignment = _solve_task_assignment(observation)
     if assignment is None:
@@ -479,7 +517,7 @@ def solve_exact_mapf_macro_plan(
             robot_state = robot_states[robot_index]
             for candidate_index in allowed_indices[robot_id]:
                 candidate = observation.macro_candidates[robot_index][candidate_index]
-                planned = plan_route_candidate(
+                planned = plan_motion_candidate(
                     environment,
                     robot_id=robot_state.spec.robot_id,
                     start_time=current_time,
@@ -487,6 +525,7 @@ def solve_exact_mapf_macro_plan(
                     occupancy_table=current_occupancy,
                     candidate=candidate,
                     service_time=task_by_id[candidate.task_id].service_time_estimate,
+                    motion_model=config.coordination.motion_model,  # type: ignore[union-attr]
                 )
                 if planned is None:
                     continue

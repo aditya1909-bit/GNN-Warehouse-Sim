@@ -45,6 +45,7 @@ policy = "prioritized_sipp_coordinator"
 execution_model = "idealized"
 
 [coordination]
+motion_model = "graph_embedded"
 control_dt = 0.25
 replan_period = 1.0
 robot_radius = 0.2
@@ -97,3 +98,4 @@ Integrated runs add:
 - Use `reserved_edges` for corridor and aisle-sharing stress tests.
 - Use `reserved_nodes` for station-like occupancy and chokepoint experiments.
 - Use `coordination_mode = "integrated"` when you want centralized timed planning and continuous collision-aware execution.
+- Use `coordination.motion_model = "free_space"` when you want direct open-plane motion between node coordinates instead of graph-edge-constrained movement.

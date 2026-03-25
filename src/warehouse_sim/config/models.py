@@ -111,6 +111,7 @@ class PolicyModelConfig:
 class CoordinationConfig:
     """Declarative configuration for integrated coordination mode."""
 
+    motion_model: str = "graph_embedded"
     control_dt: float = 0.25
     replan_period: float = 1.0
     robot_radius: float = 0.2
@@ -119,6 +120,10 @@ class CoordinationConfig:
     max_route_options_per_pair: int = 3
 
     def __post_init__(self) -> None:
+        if self.motion_model not in {"graph_embedded", "free_space"}:
+            raise ConfigValidationError(
+                "coordination.motion_model must be one of: graph_embedded, free_space."
+            )
         if self.control_dt <= 0:
             raise ConfigValidationError("coordination.control_dt must be > 0.")
         if self.replan_period <= 0:

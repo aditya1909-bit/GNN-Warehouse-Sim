@@ -7,7 +7,8 @@ Stage 12 adds a second coordination stack beside the dispatch-centric simulator.
 This stack supports:
 
 - centralized multi-robot coordination
-- continuous-time motion on the warehouse graph
+- graph-embedded continuous-time motion on the warehouse graph
+- optional open-plane free-space motion between node coordinates
 - prioritized SIPP-style planning with timed trajectories
 - exact current-epoch joint route search over the selected macro candidate set
 - explicit collision-event reporting
@@ -24,6 +25,7 @@ policy = "prioritized_sipp_coordinator"
 execution_model = "idealized"
 
 [coordination]
+motion_model = "graph_embedded"
 control_dt = 0.25
 replan_period = 1.0
 robot_radius = 0.2
@@ -32,7 +34,7 @@ k_shortest_paths = 3
 max_route_options_per_pair = 3
 ```
 
-`execution_model` stays `idealized` in config for compatibility, but integrated mode ignores the old reservation execution stack and always uses continuous graph execution internally.
+`execution_model` stays `idealized` in config for compatibility, but integrated mode ignores the old reservation execution stack and always uses continuous motion internally. `coordination.motion_model = "graph_embedded"` preserves the existing edge-constrained realization. `coordination.motion_model = "free_space"` switches to direct open-plane motion between node coordinates with disc-robot collision checks.
 
 ## Implemented Policies
 
@@ -42,6 +44,8 @@ max_route_options_per_pair = 3
 - `trained_end_to_end_macro_ppo`: artifact-backed macro PPO controller
 
 The `optimal_mapf_coordinator` claim is intentionally bounded. It is exact over the current epoch's finite task-route macro candidates and continuous graph-execution realization, not over future task releases or the full warehouse-level task-allocation problem.
+
+The free-space mode is also intentionally bounded. It is an obstacle-agnostic open-plane realization over the node coordinate system, not a full polygonal warehouse-geometry or rigid-body physics engine.
 
 ## Outputs
 

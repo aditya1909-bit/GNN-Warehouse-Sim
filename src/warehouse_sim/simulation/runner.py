@@ -174,6 +174,7 @@ def build_experiment_inputs(
                 None
                 if config.coordination is None
                 else CoordinationRuntimeConfig(
+                    motion_model=config.coordination.motion_model,
                     control_dt=config.coordination.control_dt,
                     replan_period=config.coordination.replan_period,
                     robot_radius=config.coordination.robot_radius,

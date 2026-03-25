@@ -118,6 +118,52 @@ output_dir = "outputs/integrated_optimal"
     assert config.coordination is not None
 
 
+def test_load_integrated_free_space_experiment_config(tmp_path: Path) -> None:
+    config_path = tmp_path / "integrated_free_space.toml"
+    config_path.write_text(
+        """
+name = "integrated_free_space"
+
+[layout]
+rows = 3
+columns = 3
+
+[demand]
+horizon_seconds = 60.0
+mean_interval = 30.0
+seed = 7
+
+[robots]
+count = 2
+
+[tasks]
+
+[simulation]
+coordination_mode = "integrated"
+policy = "prioritized_sipp_coordinator"
+execution_model = "idealized"
+
+[coordination]
+motion_model = "free_space"
+control_dt = 0.25
+replan_period = 1.0
+robot_radius = 0.2
+collision_clearance = 0.05
+k_shortest_paths = 2
+max_route_options_per_pair = 2
+
+[reporting]
+output_dir = "outputs/integrated_free_space"
+""".strip(),
+        encoding="utf-8",
+    )
+
+    config = load_experiment_config(config_path)
+
+    assert config.coordination is not None
+    assert config.coordination.motion_model == "free_space"
+
+
 def test_load_integrated_rl_training_config() -> None:
     config_path = Path(__file__).resolve().parents[2] / "configs" / "integrated_macro_ppo_training.toml"
     config = load_integrated_rl_training_config(config_path)

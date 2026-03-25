@@ -97,6 +97,7 @@ def load_experiment_config(path: Path) -> ExperimentConfig:
         coordination=None
         if coordination is None
         else CoordinationConfig(
+            motion_model=str(coordination.get("motion_model", "graph_embedded")),
             control_dt=float(coordination.get("control_dt", 0.25)),
             replan_period=float(coordination.get("replan_period", 1.0)),
             robot_radius=float(coordination.get("robot_radius", 0.2)),

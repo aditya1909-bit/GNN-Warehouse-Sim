@@ -46,7 +46,7 @@ The repository still does not implement a full warehouse simulator.
 
 - No battery or charging behavior
 - No global warehouse-level optimal MAPF guarantees across dynamic task allocation and future releases
-- No free-space off-graph motion physics
+- No obstacle-aware free-space off-graph geometry beyond the current open-plane motion mode
 
 ## Current Framing
 

@@ -45,6 +45,7 @@ def _row(
         "seed": seed,
         "policy": policy,
         "execution_model": "idealized",
+        "motion_model": "graph_embedded",
         "tasks_generated": 12,
         "tasks_completed": tasks_completed,
         "tasks_unassigned": 12 - tasks_completed,

@@ -5,7 +5,13 @@ from __future__ import annotations
 from warehouse_sim.agents import RobotSpec, RobotState
 from warehouse_sim.environment import WarehouseEnvironment
 from warehouse_sim.graph import SyntheticGridLayoutConfig, build_synthetic_grid_layout
+from warehouse_sim.integrated.free_space import (
+    FreeSpaceOccupancyTable,
+    detect_free_space_collision_events,
+    plan_free_space_candidate,
+)
 from warehouse_sim.integrated.engine import build_integrated_observation
+from warehouse_sim.integrated.models import MacroCandidate, TimedTraversal
 from warehouse_sim.integrated.planner import (
     ContinuousOccupancyTable,
     detect_collision_events,
@@ -187,3 +193,77 @@ def test_solve_exact_mapf_macro_plan_returns_conflict_free_joint_solution() -> N
         collision_clearance=0.05,
     )
     assert not conflicts
+
+
+def test_detect_free_space_crossing_conflict() -> None:
+    conflicts = detect_free_space_collision_events(
+        (
+            TimedTraversal(
+                robot_id="robot_a",
+                source_id="r0_c0",
+                target_id="r1_c1",
+                start_time=0.0,
+                end_time=1.0,
+                distance=1.4142,
+                travel_time=1.0,
+                start_x=0.0,
+                start_y=0.0,
+                end_x=1.0,
+                end_y=1.0,
+            ),
+            TimedTraversal(
+                robot_id="robot_b",
+                source_id="r0_c1",
+                target_id="r1_c0",
+                start_time=0.0,
+                end_time=1.0,
+                distance=1.4142,
+                travel_time=1.0,
+                start_x=1.0,
+                start_y=0.0,
+                end_x=0.0,
+                end_y=1.0,
+            ),
+        ),
+        robot_radius=0.2,
+        collision_clearance=0.05,
+    )
+
+    assert conflicts
+    assert conflicts[0][3] == "free_space_conflict"
+
+
+def test_plan_free_space_candidate_delays_conflicting_segment() -> None:
+    environment = WarehouseEnvironment(build_synthetic_grid_layout(SyntheticGridLayoutConfig(rows=2, columns=2)))
+    occupancy = FreeSpaceOccupancyTable(robot_radius=0.2, collision_clearance=0.05)
+    first = plan_free_space_candidate(
+        environment,
+        robot_id="robot_a",
+        start_time=0.0,
+        speed_multiplier=1.0,
+        occupancy_table=occupancy,
+        candidate=MacroCandidate(
+            macro_type="task_route",
+            task_id="task_a",
+            route_nodes=("r0_c0", "r1_c1"),
+            route_edges=(("r0_c0", "r1_c1"),),
+        ),
+    )
+    assert first is not None
+    occupancy.reserve(first.traversals)
+    second = plan_free_space_candidate(
+        environment,
+        robot_id="robot_b",
+        start_time=0.0,
+        speed_multiplier=1.0,
+        occupancy_table=occupancy,
+        candidate=MacroCandidate(
+            macro_type="task_route",
+            task_id="task_b",
+            route_nodes=("r0_c1", "r1_c0"),
+            route_edges=(("r0_c1", "r1_c0"),),
+        ),
+    )
+
+    assert second is not None
+    assert second.traversals[0].start_time >= first.traversals[0].end_time

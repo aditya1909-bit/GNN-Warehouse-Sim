@@ -4,7 +4,7 @@ Research-grade warehouse warehouse-coordination scaffold with validated demand g
 
 ## Current Status
 
-This repository is still not a full warehouse simulator, but it now includes both a dispatch-centric stack and an integrated coordination stack with continuous graph execution, prioritized SIPP-style planning, an exact current-epoch MAPF routing baseline, and an experimental end-to-end macro PPO controller.
+This repository is still not a full warehouse simulator, but it now includes both a dispatch-centric stack and an integrated coordination stack with graph-embedded continuous execution, an optional free-space off-graph motion mode, prioritized SIPP-style planning, an exact current-epoch MAPF routing baseline, and an experimental end-to-end macro PPO controller.
 
 Implemented and tested now:
 
@@ -21,6 +21,7 @@ Implemented and tested now:
 - PyG-based graph-conditioned dispatch scorer with message passing over the warehouse graph
 - Masked PPO fine-tuning at dispatch-event boundaries
 - Integrated coordination mode with continuous-time graph execution
+- Optional free-space off-graph motion realization over node coordinates
 - Prioritized SIPP-style centralized planner
 - Exact joint-search MAPF baseline over the current integrated macro candidate set
 - Explicit robot trajectory, macro-decision, planner-plan, and collision-event outputs
@@ -44,9 +45,9 @@ Still not implemented:
 
 - global warehouse-level optimal MAPF guarantees across dynamic task allocation and future releases
 - battery behavior or charging policies
-- free-space off-graph motion physics
+- obstacle-aware free-space geometry beyond the current open-plane continuous motion mode
 
-The current scope is: a dispatch-centric simulator plus an integrated coordination stack over the same warehouse graph. The dispatch stack remains the honest baseline for candidate scoring and congestion-aware execution. The integrated stack adds continuous-time graph coordination and MAPF-style planning. The learned integrated controller is still benchmark-gated before stronger end-to-end coordination claims.
+The current scope is: a dispatch-centric simulator plus an integrated coordination stack over the same warehouse graph. The dispatch stack remains the honest baseline for candidate scoring and congestion-aware execution. The integrated stack adds continuous-time graph coordination, a bounded free-space motion mode, and MAPF-style planning. The learned integrated controller is still benchmark-gated before stronger end-to-end coordination claims.
 
 ## Install
 
@@ -116,6 +117,13 @@ Integrated exact-routing benchmark:
 ```bash
 PYTHONPATH=src python3 -m warehouse_sim.simulation.benchmark_cli \
   --config configs/integrated_optimal_mapf_benchmark.toml
+```
+
+Free-space integrated scenario:
+
+```bash
+PYTHONPATH=src python3 -m warehouse_sim.simulation.experiment_cli \
+  --config configs/scenarios/integrated_free_space_high_fleet_density.toml
 ```
 
 The benchmark layer also supports optional repeated demand seeds through `benchmark.seeds`.

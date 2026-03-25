@@ -48,6 +48,11 @@ def run_benchmark_from_config(
                         "policy": policy,
                         "coordination_mode": policy_config.simulation.coordination_mode,
                         "execution_model": policy_config.simulation.execution_model,
+                        "motion_model": (
+                            policy_config.coordination.motion_model
+                            if policy_config.coordination is not None
+                            else "graph_embedded"
+                        ),
                         "tasks_generated": result.metrics.tasks_generated,
                         "tasks_completed": result.metrics.tasks_completed,
                         "tasks_unassigned": result.metrics.tasks_unassigned,

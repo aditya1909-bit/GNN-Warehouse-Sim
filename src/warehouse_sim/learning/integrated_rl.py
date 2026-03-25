@@ -14,6 +14,8 @@ from torch_geometric.nn import GATv2Conv
 from warehouse_sim.config import ExperimentConfig, IntegratedRLTrainingConfig, load_experiment_config
 from warehouse_sim.integrated.engine import (
     _ActivePlan,
+    _build_occupancy_table,
+    _detect_motion_collisions,
     _finalize_completed_plans,
     _next_integrated_event_time,
     _record_queue_snapshot,
@@ -21,7 +23,7 @@ from warehouse_sim.integrated.engine import (
     build_integrated_observation,
 )
 from warehouse_sim.integrated.models import CollisionEventRecord, IntegratedObservation, IntegratedPolicyStep, MacroDecisionRecord, PlannerPlanRecord
-from warehouse_sim.integrated.planner import ContinuousOccupancyTable, detect_collision_events, plan_route_candidate
+from warehouse_sim.integrated.planner import plan_motion_candidate
 from warehouse_sim.integrated.policies import IntegratedPolicyOutput, PrioritizedSIPPCoordinatorPolicy
 from warehouse_sim.metrics.collector import compute_simulation_metrics
 from warehouse_sim.simulation.runner import build_experiment_inputs, run_experiment_from_config
@@ -232,10 +234,7 @@ class IntegratedCoordinationRLEnv:
         from warehouse_sim.agents import RobotState
 
         self._robot_states = tuple(RobotState.from_spec(robot) for robot in self._robots)
-        self._occupancy = ContinuousOccupancyTable(
-            robot_radius=self._simulation_config.coordination.robot_radius,  # type: ignore[union-attr]
-            collision_clearance=self._simulation_config.coordination.collision_clearance,  # type: ignore[union-attr]
-        )
+        self._occupancy = _build_occupancy_table(self._simulation_config)
         self._released_task_ids = set()
         self._claimed_task_ids = set()
         self._completed_task_ids = set()
@@ -287,7 +286,7 @@ class IntegratedCoordinationRLEnv:
             if candidate.macro_type != "task_route" or candidate.task_id is None or robot.spec.robot_id in self._active_plans:
                 continue
             task = next(task for task in self._tasks if task.task_id == candidate.task_id)
-            planned = plan_route_candidate(
+            planned = plan_motion_candidate(
                 self._environment,
                 robot_id=robot.spec.robot_id,
                 start_time=self._current_time,
@@ -295,6 +294,7 @@ class IntegratedCoordinationRLEnv:
                 occupancy_table=self._occupancy,
                 candidate=candidate,
                 service_time=task.service_time_estimate,
+                motion_model=self._simulation_config.coordination.motion_model,  # type: ignore[union-attr]
             )
             if planned is None or planned.pickup_arrival_time is None:
                 self._planner_plans.append(
@@ -345,10 +345,9 @@ class IntegratedCoordinationRLEnv:
             )
             plan_index += 1
             used_tasks.add(task.task_id)
-        for event in detect_collision_events(
-            tuple(traversal for plan in self._active_plans.values() for traversal in plan.traversals),
-            robot_radius=self._simulation_config.coordination.robot_radius,  # type: ignore[union-attr]
-            collision_clearance=self._simulation_config.coordination.collision_clearance,  # type: ignore[union-attr]
+        for event in _detect_motion_collisions(
+            traversals=tuple(traversal for plan in self._active_plans.values() for traversal in plan.traversals),
+            config=self._simulation_config,
         ):
             self._collision_events.append(
                 CollisionEventRecord(

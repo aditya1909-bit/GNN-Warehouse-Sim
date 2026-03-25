@@ -26,6 +26,10 @@ class TimedTraversal:
     travel_time: float
     task_id: str | None = None
     phase: str = "transit"
+    start_x: float | None = None
+    start_y: float | None = None
+    end_x: float | None = None
+    end_y: float | None = None
 
 
 @dataclass(frozen=True)
@@ -41,6 +45,10 @@ class IntegratedRobotTrajectoryRecord:
     end_time: float
     distance: float
     travel_time: float
+    start_x: float | None = None
+    start_y: float | None = None
+    end_x: float | None = None
+    end_y: float | None = None
 
 
 @dataclass(frozen=True)

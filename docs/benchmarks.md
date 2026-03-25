@@ -39,6 +39,7 @@ The aggregate rows now include congestion-aware metrics such as:
 Integrated benchmark rows also include:
 
 - `coordination_mode`
+- `motion_model`
 - `safety_violations_total`
 - `replans_total`
 - `planner_failures_total`

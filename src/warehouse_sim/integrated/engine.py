@@ -6,6 +6,11 @@ from dataclasses import dataclass
 
 from warehouse_sim.agents import RobotSpec, RobotState
 from warehouse_sim.environment import WarehouseEnvironment
+from warehouse_sim.integrated.free_space import (
+    FreeSpaceOccupancyTable,
+    detect_free_space_collision_events,
+    estimate_free_space_completion_time,
+)
 from warehouse_sim.integrated.models import (
     CollisionEventRecord,
     IntegratedObservation,
@@ -18,7 +23,7 @@ from warehouse_sim.integrated.planner import (
     ContinuousOccupancyTable,
     detect_collision_events,
     generate_route_options,
-    plan_route_candidate,
+    plan_motion_candidate,
 )
 from warehouse_sim.integrated.policies import IntegratedCoordinatorPolicy
 from warehouse_sim.metrics.collector import compute_simulation_metrics
@@ -56,10 +61,7 @@ def run_integrated_simulation(
     claimed_task_ids: set[str] = set()
     completed_task_ids: set[str] = set()
     active_plans: dict[str, _ActivePlan] = {}
-    occupancy = ContinuousOccupancyTable(
-        robot_radius=config.coordination.robot_radius,
-        collision_clearance=config.coordination.collision_clearance,
-    )
+    occupancy = _build_occupancy_table(config)
 
     current_time = 0.0
     next_replan_time = 0.0
@@ -138,7 +140,7 @@ def run_integrated_simulation(
                 task = task_by_id[candidate.task_id]
                 planned = output.planned_routes.get(robot.spec.robot_id)
                 if planned is None:
-                    planned = plan_route_candidate(
+                    planned = plan_motion_candidate(
                         environment,
                         robot_id=robot.spec.robot_id,
                         start_time=current_time,
@@ -146,6 +148,7 @@ def run_integrated_simulation(
                         occupancy_table=occupancy,
                         candidate=candidate,
                         service_time=task.service_time_estimate,
+                        motion_model=config.coordination.motion_model,
                     )
                 if planned is None or planned.pickup_arrival_time is None:
                     planner_plans.append(
@@ -210,17 +213,20 @@ def run_integrated_simulation(
                             end_time=traversal.end_time,
                             distance=traversal.distance,
                             travel_time=traversal.travel_time,
+                            start_x=traversal.start_x,
+                            start_y=traversal.start_y,
+                            end_x=traversal.end_x,
+                            end_y=traversal.end_y,
                         )
                     )
-            for event in detect_collision_events(
-                tuple(
+            for event in _detect_motion_collisions(
+                traversals=tuple(
                     traversal
                     for record in active_plans.values()
                     for traversal in record.traversals
                     if traversal.end_time >= current_time
                 ),
-                robot_radius=config.coordination.robot_radius,
-                collision_clearance=config.coordination.collision_clearance,
+                config=config,
             ):
                 collision_events.append(
                     CollisionEventRecord(
@@ -418,17 +424,35 @@ def _build_robot_macro_candidates(
     for task in sorted(tasks, key=lambda item: (item.release_time, item.task_id)):
         if task.task_id not in released_task_ids or task.task_id in claimed_task_ids or task.task_id in completed_task_ids:
             continue
-        candidates.extend(
-            generate_route_options(
-                environment,
-                source=robot.current_node,
-                pickup_node=task.pickup_node,
-                dropoff_node=task.dropoff_node,
-                k_shortest=config.coordination.k_shortest_paths,
-                max_route_options=config.coordination.max_route_options_per_pair,
-                task_id=task.task_id,
+        if config.coordination.motion_model == "free_space":
+            route_nodes = (robot.current_node, task.pickup_node, task.dropoff_node)
+            candidates.append(
+                MacroCandidate(
+                    macro_type="task_route",
+                    task_id=task.task_id,
+                    route_nodes=route_nodes,
+                    route_edges=tuple(zip(route_nodes, route_nodes[1:])),
+                    estimated_completion_time=estimate_free_space_completion_time(
+                        environment,
+                        route_nodes=route_nodes,
+                        speed_multiplier=robot.spec.speed_multiplier,
+                    ),
+                    pickup_node=task.pickup_node,
+                    dropoff_node=task.dropoff_node,
+                )
             )
-        )
+        else:
+            candidates.extend(
+                generate_route_options(
+                    environment,
+                    source=robot.current_node,
+                    pickup_node=task.pickup_node,
+                    dropoff_node=task.dropoff_node,
+                    k_shortest=config.coordination.k_shortest_paths,
+                    max_route_options=config.coordination.max_route_options_per_pair,
+                    task_id=task.task_id,
+                )
+            )
     return tuple(candidates)
 
 
@@ -586,3 +610,31 @@ def _next_integrated_event_time(
     if config.horizon_seconds is not None and next_time > config.horizon_seconds and not config.continue_until_all_tasks_complete:
         return None
     return next_time
+
+
+def _build_occupancy_table(config: SimulationConfig):
+    assert config.coordination is not None
+    if config.coordination.motion_model == "free_space":
+        return FreeSpaceOccupancyTable(
+            robot_radius=config.coordination.robot_radius,
+            collision_clearance=config.coordination.collision_clearance,
+        )
+    return ContinuousOccupancyTable(
+        robot_radius=config.coordination.robot_radius,
+        collision_clearance=config.coordination.collision_clearance,
+    )
+
+
+def _detect_motion_collisions(*, traversals: tuple, config: SimulationConfig) -> tuple[tuple[float, str, str | None, str, str], ...]:
+    assert config.coordination is not None
+    if config.coordination.motion_model == "free_space":
+        return detect_free_space_collision_events(
+            traversals,
+            robot_radius=config.coordination.robot_radius,
+            collision_clearance=config.coordination.collision_clearance,
+        )
+    return detect_collision_events(
+        traversals,
+        robot_radius=config.coordination.robot_radius,
+        collision_clearance=config.coordination.collision_clearance,
+    )
