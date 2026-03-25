@@ -1,0 +1,46 @@
+name = "unseen_layout_generalization"
+
+[layout]
+rows = 6
+columns = 5
+edge_length = 1.0
+travel_speed = 1.0
+storage_cell = [0, 1]
+dropoff_cell = [5, 4]
+staging_cell = [5, 0]
+blocked_cells = [[1, 2], [2, 2], [3, 2], [4, 2], [2, 3]]
+directed_edges = [[[0, 0], [0, 1]], [[0, 1], [0, 2]], [[0, 2], [0, 3]], [[0, 3], [0, 4]]]
+
+[demand]
+horizon_seconds = 780.0
+mean_interval = 65.0
+seed = 17
+min_tasks = 0
+rush_start = 240.0
+rush_end = 660.0
+lunch_start = 780.0
+lunch_end = 780.0
+rush_multiplier = 1.4
+
+[robots]
+count = 4
+speed_multiplier = 1.0
+initial_zone = "staging_zone"
+
+[tasks]
+default_pickup_zone = "storage_zone"
+default_dropoff_zone = "dropoff_zone"
+default_task_type = "pick"
+default_priority = 1
+default_service_time_estimate = 18.0
+task_id_prefix = "task"
+
+[simulation]
+policy = "fifo"
+horizon_seconds = 780.0
+continue_until_all_tasks_complete = true
+execution_model = "reserved_edges"
+
+[reporting]
+output_dir = "outputs/scenarios/unseen_layout_generalization"
+write_plots = false

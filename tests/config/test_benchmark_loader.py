@@ -16,6 +16,8 @@ def test_load_policy_benchmark_manifest() -> None:
     assert "nearest_robot_task" in config.policies
     assert "congestion_aware_nearest_robot_task" in config.policies
     assert config.seeds is None
+    assert config.scenario_family == "custom"
+    assert config.write_manifest is True
 
 
 def test_load_benchmark_manifest_with_policy_artifacts(tmp_path: Path) -> None:
@@ -56,3 +58,13 @@ def test_load_integrated_optimal_mapf_benchmark_manifest() -> None:
 
     assert config.name == "integrated_optimal_mapf_benchmark"
     assert "optimal_mapf_coordinator" in config.policies
+
+
+def test_load_canonical_dispatch_benchmark_manifest() -> None:
+    config_path = Path(__file__).resolve().parents[2] / "configs" / "benchmarks" / "canonical_dispatch_benchmark.toml"
+    config = load_benchmark_config(config_path)
+
+    assert config.name == "canonical_dispatch_benchmark"
+    assert config.scenario_family == "canonical_dispatch"
+    assert "trained_graph_dispatch_model" in config.policies
+    assert config.seeds == (7, 11, 13, 17, 19)

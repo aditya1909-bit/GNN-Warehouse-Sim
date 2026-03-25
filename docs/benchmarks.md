@@ -1,73 +1,85 @@
 # Benchmarks
 
-## Scope
+## Canonical Suite
 
-Benchmarks still run config-driven scenario/policy combinations, but they now cover two families: dispatch-centric comparisons and integrated coordination comparisons.
+The repository now has a canonical benchmark harness for benchmark-first comparisons:
 
-## Included Benchmark Manifests
+- [`configs/benchmarks/canonical_dispatch_benchmark.toml`](/Users/adityadutta/Desktop/GitHub/GNN-Warehouse-Sim/configs/benchmarks/canonical_dispatch_benchmark.toml)
+- [`configs/benchmarks/canonical_integrated_benchmark.toml`](/Users/adityadutta/Desktop/GitHub/GNN-Warehouse-Sim/configs/benchmarks/canonical_integrated_benchmark.toml)
+- [`configs/benchmarks/canonical_full_matrix.toml`](/Users/adityadutta/Desktop/GitHub/GNN-Warehouse-Sim/configs/benchmarks/canonical_full_matrix.toml)
 
-- `configs/policy_benchmark.toml`: general baseline comparison across the original synthetic scenarios
-- `configs/congestion_policy_benchmark.toml`: contention-focused comparison across interaction-heavy scenarios
-- `configs/integrated_coordination_benchmark.toml`: integrated coordination comparison across continuous-time scenarios
-- `configs/integrated_optimal_mapf_benchmark.toml`: prioritized versus exact current-epoch MAPF routing comparison
+Run the full suite with:
 
-## Contention-Focused Scenarios
+```bash
+PYTHONPATH=src python3 scripts/build_canonical_artifacts.py \
+  --output-dir outputs/canonical_artifacts
+```
 
-- `narrow_bottleneck`: forced chokepoint in the middle of the layout
-- `high_fleet_density`: more robots relative to grid size
-- `asymmetric_flow`: directional corridor pressure
-- `station_queueing`: repeated arrivals into a shared destination area using node reservations
+```bash
+PYTHONPATH=src python3 scripts/run_canonical_benchmarks.py \
+  --config configs/benchmarks/canonical_full_matrix.toml
+```
 
-These are still synthetic research scenarios, not calibrated operational warehouse models.
+That command runs the dispatch and integrated benchmark families, writes per-benchmark artifacts, and then combines their claim tables into one headline-results bundle.
 
-## Benchmark Outputs
+The artifact-builder step now:
 
-Each run still writes its per-run experiment artifacts plus:
+- exports a merged dispatch corpus from the canonical training scenarios,
+- keeps scenario-seed train/validation/test splits reproducible,
+- trains the linear, MLP, and graph dispatch scorers with optional benchmark weighting,
+- trains the integrated macro controller with planner-guided warm start and best-checkpoint selection.
+
+## Scenario Families
+
+The canonical scenario matrix is organized around fixed named regimes:
+
+- `open_low_load`
+- `open_high_load`
+- `narrow_bottleneck`
+- `dense_crossing`
+- `high_fleet_density`
+- `integrated_reserved_edges`
+- `integrated_reserved_nodes`
+- `integrated_free_space`
+- `unseen_layout_generalization`
+- `unseen_demand_generalization`
+
+Across the suite, those scenarios vary fleet size, demand rate, topology pressure, execution model, and coordination mode.
+
+## Artifact Contract
+
+Each benchmark root writes:
 
 - `benchmark_summary.csv`
 - `benchmark_policy_aggregates.csv`
+- `benchmark_claims.csv`
+- `benchmark_claims.json`
 - `benchmark_summary.json`
+- `figures/`
+- `manifest.json`
+- `config_snapshot.toml`
+- `seed_bundle.json`
 
-The aggregate rows now include congestion-aware metrics such as:
+The aggregate tables use one stable metric schema, include mean/std/95% CI columns, and keep demand seeds aligned across policies whenever the compared policies can share the same scenario config.
 
-- realized travel time total
-- realized travel distance total
-- congestion delay total
-- average congestion delay per completed task
-- blocked traversal events total
+## Reproducibility
 
-Integrated benchmark rows also include:
+Every benchmark report now captures:
 
-- `coordination_mode`
-- `motion_model`
-- `safety_violations_total`
-- `replans_total`
-- `planner_failures_total`
+- the metric schema version,
+- a config snapshot covering the benchmark manifest and scenario manifests,
+- a machine-readable seed bundle,
+- the current git commit hash in `manifest.json`.
 
-## Repeated Seeds
+That is the minimum bundle required to regenerate a headline claim from a saved artifact root.
 
-The benchmark manifest supports optional `benchmark.seeds`. When provided, the runner repeats each scenario/policy combination across those demand seeds while keeping the rest of the scenario config fixed.
+## Legacy Benchmarks
 
-Aggregate outputs now include:
+The earlier benchmark manifests remain available for narrower checks:
 
-- mean and standard deviation for numeric metrics by scenario/policy
-- simple 95% confidence-interval bounds
-- explicit per-seed breakdowns in the JSON payload
-- aggregate scenario winners chosen from mean performance, not a single seed
+- [`configs/policy_benchmark.toml`](/Users/adityadutta/Desktop/GitHub/GNN-Warehouse-Sim/configs/policy_benchmark.toml)
+- [`configs/congestion_policy_benchmark.toml`](/Users/adityadutta/Desktop/GitHub/GNN-Warehouse-Sim/configs/congestion_policy_benchmark.toml)
+- [`configs/integrated_coordination_benchmark.toml`](/Users/adityadutta/Desktop/GitHub/GNN-Warehouse-Sim/configs/integrated_coordination_benchmark.toml)
+- [`configs/integrated_optimal_mapf_benchmark.toml`](/Users/adityadutta/Desktop/GitHub/GNN-Warehouse-Sim/configs/integrated_optimal_mapf_benchmark.toml)
 
-## Trained Policy Benchmarks
-
-Benchmarks can now reference artifact-backed learned policies through a small `policy_artifacts` mapping:
-
-```toml
-[benchmark]
-policies = ["fifo", "trained_linear_model", "trained_graph_dispatch_model"]
-
-[benchmark.policy_artifacts]
-trained_linear_model = "artifacts/models/linear_dispatch_model.json"
-trained_graph_dispatch_model = "artifacts/models/graph_dispatch_model.json"
-```
-
-That keeps learned and non-learned comparisons inside the same benchmark runner.
-
-For integrated mode, keep dedicated scenario manifests and policy sets instead of mixing dispatch and integrated policies in one benchmark file.
+They now emit the same reproducibility bundle and canonical metric names as the canonical suite.

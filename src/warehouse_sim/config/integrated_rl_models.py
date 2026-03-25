@@ -46,6 +46,25 @@ class IntegratedPPOConfig:
 
 
 @dataclass(frozen=True)
+class IntegratedWarmStartConfig:
+    """Behavior-cloning warm start before PPO fine-tuning."""
+
+    epochs: int = 0
+    learning_rate: float = 1e-3
+    teacher_policy: str = "prioritized_sipp_coordinator"
+
+    def __post_init__(self) -> None:
+        if self.epochs < 0:
+            raise ConfigValidationError("integrated warm_start.epochs must be >= 0.")
+        if self.learning_rate <= 0:
+            raise ConfigValidationError("integrated warm_start.learning_rate must be > 0.")
+        if self.teacher_policy != "prioritized_sipp_coordinator":
+            raise ConfigValidationError(
+                "integrated warm_start.teacher_policy must currently be prioritized_sipp_coordinator."
+            )
+
+
+@dataclass(frozen=True)
 class BenchmarkGateConfig:
     """Thresholds for stronger learned-coordination claims."""
 
@@ -62,6 +81,7 @@ class IntegratedRLTrainingConfig:
     curriculum: IntegratedRLCurriculumConfig
     reward: IntegratedRewardConfig
     ppo: IntegratedPPOConfig
+    warm_start: IntegratedWarmStartConfig
     benchmark_gate: BenchmarkGateConfig
     output_dir: Path
 

@@ -46,6 +46,7 @@ class OfflineModelConfig:
     message_passing_layers: int = 2
     dropout: float = 0.0
     batch_size: int = 8
+    benchmark_weighting: bool = False
 
     def __post_init__(self) -> None:
         if self.type not in {"linear", "mlp", "graph_dispatch"}:

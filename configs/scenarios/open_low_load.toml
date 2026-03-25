@@ -1,0 +1,46 @@
+name = "open_low_load"
+
+[layout]
+rows = 5
+columns = 5
+edge_length = 1.0
+travel_speed = 1.0
+storage_cell = [0, 0]
+dropoff_cell = [4, 4]
+staging_cell = [4, 0]
+blocked_cells = []
+directed_edges = []
+
+[demand]
+horizon_seconds = 720.0
+mean_interval = 120.0
+seed = 7
+min_tasks = 0
+rush_start = 720.0
+rush_end = 720.0
+lunch_start = 720.0
+lunch_end = 720.0
+rush_multiplier = 1.0
+
+[robots]
+count = 2
+speed_multiplier = 1.0
+initial_zone = "staging_zone"
+
+[tasks]
+default_pickup_zone = "storage_zone"
+default_dropoff_zone = "dropoff_zone"
+default_task_type = "pick"
+default_priority = 1
+default_service_time_estimate = 20.0
+task_id_prefix = "task"
+
+[simulation]
+policy = "fifo"
+horizon_seconds = 720.0
+continue_until_all_tasks_complete = true
+execution_model = "idealized"
+
+[reporting]
+output_dir = "outputs/scenarios/open_low_load"
+write_plots = false

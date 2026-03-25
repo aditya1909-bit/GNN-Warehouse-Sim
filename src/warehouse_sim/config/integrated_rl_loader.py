@@ -11,6 +11,7 @@ from warehouse_sim.config.integrated_rl_models import (
     IntegratedRLCurriculumConfig,
     IntegratedRewardConfig,
     IntegratedRLTrainingConfig,
+    IntegratedWarmStartConfig,
 )
 
 
@@ -23,6 +24,7 @@ def load_integrated_rl_training_config(path: Path) -> IntegratedRLTrainingConfig
     curriculum = raw["curriculum"]
     reward = raw.get("reward", {})
     ppo = raw.get("ppo", {})
+    warm_start = raw.get("warm_start", {})
     benchmark_gate = raw.get("benchmark_gate", {})
     output = raw.get("output", {})
     return IntegratedRLTrainingConfig(
@@ -45,6 +47,11 @@ def load_integrated_rl_training_config(path: Path) -> IntegratedRLTrainingConfig
             gae_lambda=float(ppo.get("gae_lambda", 0.95)),
             ppo_epochs=int(ppo.get("ppo_epochs", 3)),
             total_episodes=int(ppo.get("total_episodes", 12)),
+        ),
+        warm_start=IntegratedWarmStartConfig(
+            epochs=int(warm_start.get("epochs", 0)),
+            learning_rate=float(warm_start.get("learning_rate", 1e-3)),
+            teacher_policy=str(warm_start.get("teacher_policy", "prioritized_sipp_coordinator")),
         ),
         benchmark_gate=BenchmarkGateConfig(
             max_safety_violations=int(benchmark_gate.get("max_safety_violations", 0)),

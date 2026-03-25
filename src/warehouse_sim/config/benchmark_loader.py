@@ -35,7 +35,9 @@ def load_benchmark_config(path: Path) -> BenchmarkConfig:
         scenario_configs=scenario_configs,
         policies=policies,
         output_dir=output_dir,
+        scenario_family=str(benchmark.get("scenario_family", "custom")),
         write_plots=bool(benchmark.get("write_plots", False)),
+        write_manifest=bool(benchmark.get("write_manifest", True)),
         seeds=seeds,
         policy_artifacts=policy_artifacts,
     )

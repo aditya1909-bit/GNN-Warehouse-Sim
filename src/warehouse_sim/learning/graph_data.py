@@ -14,6 +14,7 @@ from warehouse_sim.candidate_features import SUPPORTED_CANDIDATE_FEATURES
 from warehouse_sim.graph.models import NodeType
 from warehouse_sim.learning.datasets import _parse_scalar
 from warehouse_sim.learning.features import validate_candidate_feature_names
+from warehouse_sim.learning.objective_weighting import benchmark_weight_from_row
 from warehouse_sim.simulation.models import DispatchArcObservationRecord, DispatchNodeObservationRecord
 
 if TYPE_CHECKING:
@@ -103,7 +104,15 @@ class GraphDispatchDataset:
             return np.asarray([str(example.metadata["run_id"]) for example in self.examples], dtype=object)
         if split_unit == "scenario":
             return np.asarray([str(example.metadata["scenario_name"]) for example in self.examples], dtype=object)
+        if split_unit == "scenario_seed":
+            return np.asarray([str(example.metadata["scenario_seed"]) for example in self.examples], dtype=object)
         raise ValueError(f"Unsupported split unit: {split_unit}")
+
+    def group_weights(self) -> np.ndarray:
+        return np.asarray(
+            [float(example.metadata.get("benchmark_weight", 1.0)) for example in self.examples],
+            dtype=float,
+        )
 
 
 def load_graph_dispatch_dataset(
@@ -139,6 +148,12 @@ def load_graph_dispatch_dataset(
             or manifest_payload.get("experiment_name")
             or run_id
         )
+        demand_seed = manifest_payload.get("demand_seed")
+        scenario_seed = (
+            f"{scenario_name}::seed_{int(demand_seed)}"
+            if demand_seed not in (None, "")
+            else f"{scenario_name}::{run_id}"
+        )
 
         dispatch_candidates: dict[int, list[dict[str, object]]] = {}
         for row in dispatch_rows:
@@ -167,9 +182,11 @@ def load_graph_dispatch_dataset(
                 metadata={
                     "run_id": run_id,
                     "scenario_name": scenario_name,
+                    "scenario_seed": scenario_seed,
                     "source_policy_name": str(manifest_payload.get("policy_name") or "unknown_policy"),
                     "selected_robot_id": candidate_rows[0]["selected_robot_id"],
                     "selected_task_id": candidate_rows[0]["selected_task_id"],
+                    "benchmark_weight": benchmark_weight_from_row(_selected_candidate_row(candidate_rows)),
                 },
             )
             examples.append(example)
@@ -480,6 +497,13 @@ def _graph_dataset_source_from_manifest(path: Path) -> _GraphDatasetSource:
         dispatch_node_observations_path=(path.parent / str(files["dispatch_node_observations"])).resolve(),
         dispatch_arc_observations_path=(path.parent / str(files["dispatch_arc_observations"])).resolve(),
     )
+
+
+def _selected_candidate_row(candidate_rows: list[dict[str, object]]) -> dict[str, object]:
+    for row in candidate_rows:
+        if bool(row.get("is_selected")):
+            return row
+    return candidate_rows[0]
 
 
 def _read_csv_rows(path: Path) -> list[dict[str, object]]:

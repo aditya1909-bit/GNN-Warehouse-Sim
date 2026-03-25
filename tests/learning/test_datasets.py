@@ -63,6 +63,34 @@ def test_grouped_splits_prevent_dispatch_and_run_leakage(tmp_path: Path) -> None
         set(run_splits.validation.dataset.metadata["run_id"])
     )
 
+    scenario_seed_splits = split_dispatch_observation_dataset(
+        dataset,
+        SplitConfig(
+            train_fraction=0.5,
+            validation_fraction=0.5,
+            test_fraction=0.0,
+            split_unit="scenario_seed",
+            seed=2,
+        ),
+    )
+    assert len(set(scenario_seed_splits.train.dataset.metadata["scenario_seed"])) == 1
+    assert len(set(scenario_seed_splits.validation.dataset.metadata["scenario_seed"])) == 1
+    assert set(scenario_seed_splits.train.dataset.metadata["scenario_seed"]).isdisjoint(
+        set(scenario_seed_splits.validation.dataset.metadata["scenario_seed"])
+    )
+
+
+def test_manifest_tree_preferred_over_stale_root_dataset(tmp_path: Path) -> None:
+    _write_dataset_run(tmp_path, run_id="stale_root", scenario_name="stale", seed=1, dispatch_start=0)
+    _write_dataset_run(tmp_path / "nested_a", run_id="run_a", scenario_name="scenario_a", seed=11, dispatch_start=10)
+    _write_dataset_run(tmp_path / "nested_b", run_id="run_b", scenario_name="scenario_b", seed=13, dispatch_start=20)
+
+    dataset = load_dispatch_observation_dataset(tmp_path)
+
+    assert dataset.row_count == 18
+    assert set(dataset.metadata["run_id"]) == {"stale_root", "run_a", "run_b"}
+    assert set(dataset.metadata["scenario_seed"]) == {"stale::seed_1", "scenario_a::seed_11", "scenario_b::seed_13"}
+
 
 def _write_dataset_run(
     output_dir: Path,

@@ -9,6 +9,7 @@ from warehouse_sim.config.integrated_rl_models import (
     IntegratedRLCurriculumConfig,
     IntegratedRewardConfig,
     IntegratedRLTrainingConfig,
+    IntegratedWarmStartConfig,
 )
 from warehouse_sim.config.learning_loader import load_offline_training_config
 from warehouse_sim.config.learning_models import (
@@ -45,6 +46,7 @@ __all__ = [
     "IntegratedRLCurriculumConfig",
     "IntegratedRLTrainingConfig",
     "IntegratedRewardConfig",
+    "IntegratedWarmStartConfig",
     "LayoutConfig",
     "OfflineDatasetConfig",
     "OfflineModelConfig",

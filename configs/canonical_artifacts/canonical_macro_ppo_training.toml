@@ -1,0 +1,39 @@
+name = "canonical_macro_ppo_training"
+
+[curriculum]
+scenario_configs = [
+  "../scenarios/integrated_reserved_edges.toml",
+  "../scenarios/integrated_reserved_nodes.toml",
+  "../scenarios/integrated_narrow_bottleneck.toml",
+  "../scenarios/integrated_high_fleet_density.toml",
+  "../scenarios/integrated_free_space.toml",
+]
+train_seeds = [7, 11, 13, 17]
+validation_seeds = [19]
+
+[warm_start]
+epochs = 3
+learning_rate = 0.001
+teacher_policy = "prioritized_sipp_coordinator"
+
+[reward]
+task_completion = 1.0
+waiting_time = -0.01
+congestion_delay = -0.02
+safety_violation = -1.0
+
+[ppo]
+learning_rate = 0.0003
+clip_epsilon = 0.2
+gamma = 0.99
+gae_lambda = 0.95
+ppo_epochs = 3
+total_episodes = 24
+
+[benchmark_gate]
+max_safety_violations = 0
+min_task_completion_rate = 0.98
+min_throughput_ratio_vs_baseline = 0.9
+
+[output]
+output_dir = "../../outputs/canonical_artifacts/macro_ppo"

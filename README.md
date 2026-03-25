@@ -1,235 +1,157 @@
 # GNN-Warehouse-Sim
 
-Research-grade warehouse warehouse-coordination scaffold with validated demand generation, warehouse graph/task primitives, config-driven experiments, dispatch learning, and an integrated MAPF-style coordination stack.
+Benchmark-first warehouse coordination research scaffold for comparing dispatch heuristics, learned dispatch scorers, integrated planners, and end-to-end macro controllers under shared synthetic scenario families.
 
-## Current Status
+## Problem
 
-This repository is still not a full warehouse simulator, but it now includes both a dispatch-centric stack and an integrated coordination stack with graph-embedded continuous execution, an optional free-space off-graph motion mode, prioritized SIPP-style planning, an exact current-epoch MAPF routing baseline, and an experimental end-to-end macro PPO controller.
+Warehouse coordination claims are cheap when dispatch, execution, planning, and learning are all benchmarked on different settings. This repository is built around one graph-backed warehouse model so dispatch policies, congestion-aware execution, integrated planners, and learned controllers can be compared under the same scenario definitions and machine-readable artifact contract.
 
-Implemented and tested now:
+## What This Repo Contributes
 
-- Synthetic warehouse task-demand generation as a non-homogeneous Poisson process
-- Synthetic grid warehouse topology with weighted shortest-path utilities
-- Warehouse environment and named zone abstractions
-- Explicit task objects, release-time-aware task queues, and demand-to-task adapters
-- Robot specifications and discrete-event simulation runtime state
-- Baseline dispatch policies: FIFO, random, nearest-robot-task, nearest-task-for-idle-robot
-- Observation-driven linear scoring policy loaded from experiment config
-- Offline fitting pipeline for candidate-scoring dispatch models
-- Trained linear scorer artifact loading inside live simulation runs
-- Modest nonlinear learned baseline: a small MLP over candidate features
-- PyG-based graph-conditioned dispatch scorer with message passing over the warehouse graph
-- Masked PPO fine-tuning at dispatch-event boundaries
-- Integrated coordination mode with continuous-time graph execution
-- Optional free-space off-graph motion realization over node coordinates
-- Prioritized SIPP-style centralized planner
-- Exact joint-search MAPF baseline over the current integrated macro candidate set
-- Explicit robot trajectory, macro-decision, planner-plan, and collision-event outputs
-- End-to-end macro PPO training and artifact loading for integrated mode
-- Offline evaluation outputs for dispatch-ranking models
-- Congestion-aware heuristic baseline: `congestion_aware_nearest_robot_task`
-- Config-driven experiments and benchmark manifests
-- Machine-readable reporting outputs: `summary.json`, `executions.csv`, `queue_snapshots.csv`, `robot_metrics.csv`
-- Graph featurization, dispatch-time observations, and observation-dataset export
-- Dispatch-indexed graph-state export through `dispatch_node_observations.csv` and `dispatch_arc_observations.csv`
-- Interaction-aware execution modes with explicit shortest-path materialization plus simplified node/edge reservation models
-- Congestion-sensitive metrics, benchmark scenarios, and pytest coverage across the stack
+- Config-driven dispatch and integrated coordination experiments over the same warehouse graph abstraction
+- Graph-conditioned dispatch learning, masked PPO fine-tuning, and an experimental end-to-end macro PPO controller
+- Prioritized SIPP-style coordination, an exact current-epoch MAPF baseline, and continuous-time integrated execution
+- Canonical metric naming, confidence-interval aggregation, claim tables, config snapshots, seed bundles, and artifact manifests
 
-Implemented now, but still deliberately simplified:
+## Headline Empirical Results
 
-- `execution_model = "idealized"` preserves the original independent-travel baseline
-- `execution_model = "reserved_edges"` adds directed-edge reservations and realized waiting
-- `execution_model = "reserved_nodes"` adds single-node occupancy and realized waiting
+The current canonical artifact bundle supports the following benchmarked comparisons:
 
-Still not implemented:
+| scenario | best baseline | best learned/planner method | uplift | 95% CI | artifact path |
+| --- | --- | --- | --- | --- | --- |
+| `open_low_load` | `fifo` | `congestion_aware_nearest_robot_task` | `3.93%` lower p95 task completion time | `-8.00%` to `+11.20%` | [`outputs/benchmarks/canonical_full_matrix/dispatch/benchmark_claims.csv`](outputs/benchmarks/canonical_full_matrix/dispatch/benchmark_claims.csv) |
+| `narrow_bottleneck` | `random` | `congestion_aware_nearest_robot_task` | `1.32%` lower p95 task completion time | `-0.46%` to `+1.42%` | [`outputs/benchmarks/canonical_full_matrix/dispatch/benchmark_claims.csv`](outputs/benchmarks/canonical_full_matrix/dispatch/benchmark_claims.csv) |
+| `integrated_narrow_bottleneck` | `random_macro` | `optimal_mapf_coordinator` | `11.11%` lower p95 task completion time | `+3.26s` to `+5.95s` | [`outputs/benchmarks/canonical_full_matrix/integrated/benchmark_claims.csv`](outputs/benchmarks/canonical_full_matrix/integrated/benchmark_claims.csv) |
 
-- global warehouse-level optimal MAPF guarantees across dynamic task allocation and future releases
-- battery behavior or charging policies
-- obstacle-aware free-space geometry beyond the current open-plane continuous motion mode
+Supported claims from those artifacts:
 
-The current scope is: a dispatch-centric simulator plus an integrated coordination stack over the same warehouse graph. The dispatch stack remains the honest baseline for candidate scoring and congestion-aware execution. The integrated stack adds continuous-time graph coordination, a bounded free-space motion mode, and MAPF-style planning. The learned integrated controller is still benchmark-gated before stronger end-to-end coordination claims.
+- In `open_low_load`, `congestion_aware_nearest_robot_task` reduced p95 task completion time by `3.93%` versus `fifo`.
+- In `narrow_bottleneck`, `congestion_aware_nearest_robot_task` reduced p95 task completion time by `1.32%` versus `random`.
+- In `integrated_narrow_bottleneck`, `optimal_mapf_coordinator` reduced p95 task completion time by `11.11%` versus `random_macro`.
 
-## Install
+Constraint on interpretation:
+
+- The canonical dispatch artifacts are now trained from a multi-scenario corpus with scenario-seed splits and benchmark-weighted objectives, but the learned dispatch family still does not beat the strongest heuristic in the current canonical suite.
+- The integrated macro controller now supports planner-guided warm start and best-checkpoint retention, but it remains benchmark-gated because reserved-resource scenarios still produce unacceptable collision counts. See [`outputs/canonical_artifacts/macro_ppo/claim_gate.json`](outputs/canonical_artifacts/macro_ppo/claim_gate.json).
+
+## Reproducibility Quickstart
+
+Install:
 
 ```bash
 python3 -m pip install -e .[dev]
 ```
 
-## Run The Baseline Simulation
-
-Legacy-compatible script:
+Build the canonical trained artifact bundle:
 
 ```bash
-python3 scripts/run_simulation_baseline.py --policy fifo
+PYTHONPATH=src python3 scripts/build_canonical_artifacts.py \
+  --output-dir outputs/canonical_artifacts
 ```
 
-Package CLI:
+Run the canonical benchmark harness against that bundle:
 
 ```bash
-PYTHONPATH=src python3 -m warehouse_sim.simulation.cli \
-  --policy congestion_aware_nearest_robot_task \
-  --execution-model reserved_edges
+PYTHONPATH=src python3 scripts/run_canonical_benchmarks.py \
+  --config configs/benchmarks/canonical_full_matrix.toml
 ```
 
-## Run A Config-Driven Experiment
+Each benchmark root now writes:
 
-```bash
-python3 scripts/run_experiment.py --config configs/baseline_experiment.toml
-```
+- `benchmark_summary.csv`
+- `benchmark_policy_aggregates.csv`
+- `benchmark_claims.csv`
+- `benchmark_claims.json`
+- `benchmark_summary.json`
+- `figures/`
+- `manifest.json`
+- `config_snapshot.toml`
+- `seed_bundle.json`
 
-```bash
-PYTHONPATH=src python3 -m warehouse_sim.simulation.experiment_cli \
-  --config configs/scenarios/narrow_bottleneck.toml
-```
+## Architecture Overview
 
-Execution mode is controlled in the `[simulation]` section:
+- Dispatch stack: heuristics, linear/MLP scorers, graph-conditioned dispatch scoring, masked PPO fine-tuning
+- Execution stack: idealized dispatch execution plus reservation-aware `reserved_edges` and `reserved_nodes` modes
+- Integrated stack: continuous-time macro coordination, prioritized SIPP-style planning, exact current-epoch MAPF routing, optional free-space motion
+- Reporting stack: stable metric schema, aggregate benchmark writer, claim tables, figure outputs, config snapshots, and manifest capture
 
-```toml
-[simulation]
-policy = "congestion_aware_nearest_robot_task"
-execution_model = "reserved_edges"
-```
+## Benchmark Suite
 
-## Run Benchmarks
+The repository now includes canonical benchmark configs under [`configs/benchmarks/`](configs/benchmarks/):
 
-Baseline comparison:
+- `canonical_dispatch_benchmark.toml`
+- `canonical_integrated_benchmark.toml`
+- `canonical_full_matrix.toml`
 
-```bash
-python3 scripts/run_benchmark.py --config configs/policy_benchmark.toml
-```
+The canonical scenario family includes:
 
-Contention-focused benchmark:
+- `open_low_load`
+- `open_high_load`
+- `narrow_bottleneck`
+- `dense_crossing`
+- `high_fleet_density`
+- `integrated_reserved_edges`
+- `integrated_reserved_nodes`
+- `integrated_free_space`
+- `unseen_layout_generalization`
+- `unseen_demand_generalization`
 
-```bash
-PYTHONPATH=src python3 -m warehouse_sim.simulation.benchmark_cli \
-  --config configs/congestion_policy_benchmark.toml
-```
+Legacy benchmark configs remain useful for narrower checks:
 
-Integrated coordination benchmark:
+- [`configs/policy_benchmark.toml`](configs/policy_benchmark.toml)
+- [`configs/congestion_policy_benchmark.toml`](configs/congestion_policy_benchmark.toml)
+- [`configs/integrated_coordination_benchmark.toml`](configs/integrated_coordination_benchmark.toml)
+- [`configs/integrated_optimal_mapf_benchmark.toml`](configs/integrated_optimal_mapf_benchmark.toml)
 
-```bash
-PYTHONPATH=src python3 -m warehouse_sim.simulation.benchmark_cli \
-  --config configs/integrated_coordination_benchmark.toml
-```
+## Learning Stack
 
-Integrated exact-routing benchmark:
+Dispatch learning paths currently implemented:
 
-```bash
-PYTHONPATH=src python3 -m warehouse_sim.simulation.benchmark_cli \
-  --config configs/integrated_optimal_mapf_benchmark.toml
-```
+- offline grouped linear scoring
+- offline grouped MLP scoring
+- PyG-based graph-conditioned dispatch scoring
+- masked PPO fine-tuning over dispatch-event action masks
 
-Free-space integrated scenario:
+The canonical dispatch artifact builder now trains from a merged multi-scenario corpus, uses `scenario_seed` train/validation/test splits, and supports benchmark-weighted losses so congestion-heavy cases matter more than low-contention snapshots.
 
-```bash
-PYTHONPATH=src python3 -m warehouse_sim.simulation.experiment_cli \
-  --config configs/scenarios/integrated_free_space_high_fleet_density.toml
-```
+Integrated learning path currently implemented:
 
-The benchmark layer also supports optional repeated demand seeds through `benchmark.seeds`.
+- end-to-end macro PPO over centralized integrated observations with planner-guided warm start and best-validation checkpoint retention
 
-Repeated-seed benchmark outputs now include:
-
-- per-run `benchmark_summary.csv`
-- aggregate `benchmark_policy_aggregates.csv`
-- JSON summaries with per-seed breakdowns, mean/std, and 95% confidence-interval bounds
-
-## Fit Offline Dispatch Models
-
-Fit the grouped linear scorer:
+Training entry points:
 
 ```bash
 python3 scripts/run_offline_policy_fitting.py train --config configs/offline_linear_fit.toml
-```
-
-Fit the modest nonlinear baseline:
-
-```bash
 python3 scripts/run_offline_policy_fitting.py train --config configs/offline_mlp_fit.toml
-```
-
-Fit the graph-conditioned dispatch scorer:
-
-```bash
 python3 scripts/run_offline_policy_fitting.py train --config configs/offline_graph_dispatch_fit.toml
-```
-
-Fine-tune the graph scorer with masked PPO:
-
-```bash
 python3 scripts/run_offline_policy_fitting.py train-rl --config configs/graph_dispatch_rl_fine_tune.toml
-```
-
-Train the integrated end-to-end macro controller:
-
-```bash
 python3 scripts/run_offline_policy_fitting.py train-integrated-rl --config configs/integrated_macro_ppo_training.toml
 ```
 
-Evaluate an existing artifact:
+## Planner Stack
 
-```bash
-PYTHONPATH=src python3 -m warehouse_sim.learning.cli evaluate \
-  --artifact outputs/offline/offline_linear_dispatch_fit/model_artifact.json \
-  --dataset outputs/linear_assignment_policy/dataset_manifest.json \
-  --output-dir outputs/offline/evaluation
-```
-
-The learning pipeline still stays aligned with simulator exports. Linear and MLP models consume candidate rows from `dispatch_observations.csv`. The graph-conditioned model additionally consumes dispatch-level node and arc tables exported by the simulator. This is still dispatch candidate scoring, not full learned warehouse coordination.
-
-## Run Trained Artifacts In Simulation
-
-Experiment configs can now point a trained scorer artifact back into the live simulator:
-
-```toml
-[simulation]
-policy = "trained_linear_model"
-
-[policy_model]
-artifact_path = "artifacts/models/linear_dispatch_model.json"
-```
-
-Supported trained policy names are:
-
-- `trained_linear_model`
-- `trained_mlp_model`
-- `trained_graph_dispatch_model`
-- `trained_end_to_end_macro_ppo`
-
-Integrated non-learning policy names now include:
+Integrated non-learning policies currently supported:
 
 - `prioritized_sipp_coordinator`
 - `optimal_mapf_coordinator`
 - `random_macro`
 
+The integrated stack writes explicit robot trajectories, macro decisions, collision events, and planner-plan tables so planner behavior is inspectable beyond scalar summary metrics.
+
+## Limitations / Honest Caveats
+
+- The checked-in headline results currently support planner and congestion-aware heuristic claims, not broad learned-policy superiority claims.
+- The canonical full-matrix configs expect trained artifact paths for `trained_linear_model`, `trained_mlp_model`, `trained_graph_dispatch_model`, and `trained_end_to_end_macro_ppo`. Generating that artifact bundle is the remaining step before the canonical suite can support full learning-vs-planning claims end to end.
+- Global optimal MAPF over future task releases is still out of scope. The exact MAPF baseline is explicitly current-epoch and bounded to the current macro candidate surface.
+- Battery/charging behavior and obstacle-aware free-space geometry are still not implemented.
+
 ## Documentation
 
-- [Repository audit](docs/repo_audit.md)
 - [Architecture overview](docs/architecture.md)
-- [Domain model](docs/domain_model.md)
-- [Simulation baseline](docs/simulation_baseline.md)
-- [Interaction-aware execution](docs/interaction_aware_execution.md)
-- [Experiments](docs/experiments.md)
 - [Benchmarks](docs/benchmarks.md)
+- [Metric definitions](docs/metric_definitions.md)
 - [Integrated coordination](docs/integrated_coordination.md)
-- [GNN preparation layer](docs/gnn_preparation.md)
-- [Observation datasets](docs/observation_datasets.md)
 - [Offline policy fitting](docs/offline_policy_fitting.md)
 - [Policy models](docs/policy_models.md)
-
-## Notebooks
-
-- `notebooks/e2e_cli_workflow.ipynb`: runs the documented CLI workflows end to end
-- `notebooks/e2e_python_api_workflow.ipynb`: runs the same stack through the Python APIs and compares idealized vs congestion-aware execution
-
-## Generate Synthetic Task Demand
-
-```bash
-python3 scripts/generate_task_demand.py
-```
-
-```bash
-PYTHONPATH=src python3 -m warehouse_sim.demand.cli
-```
-
-Default output: `data/task_demand.csv`
+- [Observation datasets](docs/observation_datasets.md)
+- [Repository audit](docs/repo_audit.md)

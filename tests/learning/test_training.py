@@ -60,6 +60,28 @@ def test_fit_grouped_mlp_model_smoke(tmp_path: Path) -> None:
     assert len(result.artifact.parameters["hidden_bias"]) == 8
 
 
+def test_weighted_linear_training_records_benchmark_weighting(tmp_path: Path) -> None:
+    dataset_path = _write_training_dataset(tmp_path / "dispatch_observations.csv")
+    dataset = load_dispatch_observation_dataset(dataset_path, feature_names=("travel_to_pickup_time", "task_age"))
+    splits = split_dispatch_observation_dataset(
+        dataset,
+        SplitConfig(train_fraction=0.6, validation_fraction=0.2, test_fraction=0.2, seed=7),
+    )
+
+    result = fit_grouped_linear_model(
+        splits.train,
+        splits.validation,
+        GroupedLinearFitConfig(
+            learning_rate=0.1,
+            max_epochs=100,
+            patience=10,
+            benchmark_weighting=True,
+        ),
+    )
+
+    assert result.artifact.metadata["training"]["benchmark_weighting"] is True
+
+
 def _write_training_dataset(path: Path) -> Path:
     rows = []
     for dispatch_index in range(10):

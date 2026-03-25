@@ -21,10 +21,12 @@ METADATA_COLUMNS = (
     "dataset_id",
     "run_id",
     "scenario_name",
+    "scenario_seed",
     "experiment_name",
     "source_policy_name",
     "demand_seed",
     "source_manifest_path",
+    "benchmark_weight",
     "dispatch_group_id",
     "dispatch_index",
     "decision_time",
@@ -40,9 +42,17 @@ METADATA_COLUMNS = (
     "task_source_zone",
     "task_destination_zone",
     "execution_model",
+    "ready_task_count",
+    "mean_ready_task_age",
+    "active_reserved_edge_count",
+    "active_reserved_node_count",
+    "estimated_pickup_congestion_delay",
+    "estimated_dropoff_congestion_delay",
+    "estimated_pickup_blocked_segments",
+    "estimated_dropoff_blocked_segments",
 )
 
-SUPPORTED_SPLIT_UNITS = ("dispatch_group", "run", "scenario")
+SUPPORTED_SPLIT_UNITS = ("dispatch_group", "run", "scenario", "scenario_seed")
 
 
 def candidate_feature_names_from_columns(columns: tuple[str, ...] | list[str]) -> tuple[str, ...]:

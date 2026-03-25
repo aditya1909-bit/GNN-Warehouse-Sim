@@ -23,6 +23,7 @@ class GroupedLinearFitConfig:
     max_epochs: int = 300
     l2_regularization: float = 1e-4
     patience: int = 25
+    benchmark_weighting: bool = False
 
     def __post_init__(self) -> None:
         if self.learning_rate <= 0:
@@ -48,10 +49,14 @@ def fit_grouped_linear_model(
     x_train_scaled, means, scales = standardize_feature_matrix(train_split.dataset.feature_matrix)
     y_train = train_split.dataset.labels.astype(float)
     train_groups = train_split.dataset.iter_group_indices()
+    train_group_weights = train_split.dataset.group_weights() if config.benchmark_weighting else None
 
     x_validation_scaled = (validation_split.dataset.feature_matrix - means) / scales
     y_validation = validation_split.dataset.labels.astype(float)
     validation_groups = validation_split.dataset.iter_group_indices()
+    validation_group_weights = (
+        validation_split.dataset.group_weights() if config.benchmark_weighting else None
+    )
 
     weights = np.zeros(x_train_scaled.shape[1], dtype=float)
     bias = 0.0
@@ -67,6 +72,7 @@ def fit_grouped_linear_model(
             x_train_scaled,
             y_train,
             train_groups,
+            train_group_weights,
             weights,
             bias,
             config.l2_regularization,
@@ -75,7 +81,12 @@ def fit_grouped_linear_model(
         bias -= config.learning_rate * gradient_bias
 
         validation_scores = x_validation_scaled @ weights + bias
-        validation_loss = grouped_softmax_loss(validation_scores, y_validation, validation_groups)
+        validation_loss = grouped_softmax_loss(
+            validation_scores,
+            y_validation,
+            validation_groups,
+            validation_group_weights,
+        )
         history.append(
             {
                 "epoch": float(epoch),
@@ -111,6 +122,7 @@ def fit_grouped_linear_model(
                 "feature_scales": scales.tolist(),
                 "best_epoch": best_epoch,
                 "best_validation_loss": best_validation_loss,
+                "benchmark_weighting": config.benchmark_weighting,
             },
             "weight_summary": {
                 feature_name: float(weight)
@@ -138,6 +150,7 @@ def _linear_loss_and_gradient(
     feature_matrix: np.ndarray,
     labels: np.ndarray,
     group_indices: tuple[np.ndarray, ...],
+    group_weights: np.ndarray | None,
     weights: np.ndarray,
     bias: float,
     l2_regularization: float,
@@ -146,20 +159,28 @@ def _linear_loss_and_gradient(
     gradients = np.zeros_like(weights)
     gradient_bias = 0.0
     total_loss = 0.0
+    weights_by_group = (
+        np.asarray(group_weights, dtype=float)
+        if group_weights is not None
+        else np.ones(len(group_indices), dtype=float)
+    )
+    total_weight = 0.0
 
-    for indices in group_indices:
+    for group_offset, indices in enumerate(group_indices):
         group_features = feature_matrix[indices]
         group_labels = labels[indices]
         group_scores = scores[indices]
         shifted = group_scores - np.max(group_scores)
         exponentiated = np.exp(shifted)
         probabilities = exponentiated / np.sum(exponentiated)
-        total_loss += -float(np.dot(group_labels, shifted - np.log(np.sum(exponentiated))))
+        weight = float(weights_by_group[group_offset])
+        total_loss += weight * -float(np.dot(group_labels, shifted - np.log(np.sum(exponentiated))))
         difference = probabilities - group_labels
-        gradients += group_features.T @ difference
-        gradient_bias += float(np.sum(difference))
+        gradients += weight * (group_features.T @ difference)
+        gradient_bias += weight * float(np.sum(difference))
+        total_weight += weight
 
-    normalizer = max(len(group_indices), 1)
+    normalizer = max(total_weight, 1e-12)
     total_loss = total_loss / normalizer + 0.5 * l2_regularization * float(np.dot(weights, weights))
     gradients = gradients / normalizer + l2_regularization * weights
     gradient_bias /= normalizer

@@ -59,6 +59,7 @@ def load_offline_training_config(path: Path) -> OfflineTrainingConfig:
             message_passing_layers=int(model.get("message_passing_layers", 2)),
             dropout=float(model.get("dropout", 0.0)),
             batch_size=int(model.get("batch_size", 8)),
+            benchmark_weighting=bool(model.get("benchmark_weighting", False)),
         ),
         reporting=OfflineReportingConfig(output_dir=output_dir),
     )

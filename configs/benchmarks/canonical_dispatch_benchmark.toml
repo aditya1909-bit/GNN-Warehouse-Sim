@@ -1,0 +1,31 @@
+[benchmark]
+name = "canonical_dispatch_benchmark"
+scenario_family = "canonical_dispatch"
+scenario_configs = [
+  "../scenarios/open_low_load.toml",
+  "../scenarios/open_high_load.toml",
+  "../scenarios/narrow_bottleneck.toml",
+  "../scenarios/dense_crossing.toml",
+  "../scenarios/high_fleet_density.toml",
+  "../scenarios/unseen_layout_generalization.toml",
+  "../scenarios/unseen_demand_generalization.toml",
+]
+policies = [
+  "fifo",
+  "random",
+  "nearest_robot_task",
+  "nearest_task_for_idle_robot",
+  "congestion_aware_nearest_robot_task",
+  "trained_linear_model",
+  "trained_mlp_model",
+  "trained_graph_dispatch_model",
+]
+output_dir = "../../outputs/benchmarks/canonical_dispatch_benchmark"
+write_plots = false
+write_manifest = true
+seeds = [7, 11, 13, 17, 19]
+
+[benchmark.policy_artifacts]
+trained_linear_model = "../../outputs/canonical_artifacts/dispatch_linear/model_artifact.json"
+trained_mlp_model = "../../outputs/canonical_artifacts/dispatch_mlp/model_artifact.json"
+trained_graph_dispatch_model = "../../outputs/canonical_artifacts/dispatch_graph/model_artifact.json"

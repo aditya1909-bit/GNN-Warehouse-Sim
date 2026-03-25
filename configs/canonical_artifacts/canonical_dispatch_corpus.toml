@@ -1,0 +1,10 @@
+[corpus]
+policy = "congestion_aware_nearest_robot_task"
+scenario_configs = [
+  "../scenarios/open_low_load.toml",
+  "../scenarios/open_high_load.toml",
+  "../scenarios/narrow_bottleneck.toml",
+  "../scenarios/dense_crossing.toml",
+  "../scenarios/high_fleet_density.toml",
+]
+seeds = [7, 11, 13, 17, 19]

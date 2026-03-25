@@ -1,0 +1,23 @@
+[benchmark]
+name = "canonical_integrated_benchmark"
+scenario_family = "canonical_integrated"
+scenario_configs = [
+  "../scenarios/integrated_reserved_edges.toml",
+  "../scenarios/integrated_reserved_nodes.toml",
+  "../scenarios/integrated_narrow_bottleneck.toml",
+  "../scenarios/integrated_high_fleet_density.toml",
+  "../scenarios/integrated_free_space.toml",
+]
+policies = [
+  "prioritized_sipp_coordinator",
+  "optimal_mapf_coordinator",
+  "random_macro",
+  "trained_end_to_end_macro_ppo",
+]
+output_dir = "../../outputs/benchmarks/canonical_integrated_benchmark"
+write_plots = false
+write_manifest = true
+seeds = [7, 11, 13, 17, 19]
+
+[benchmark.policy_artifacts]
+trained_end_to_end_macro_ppo = "../../outputs/canonical_artifacts/macro_ppo/model_artifact.json"

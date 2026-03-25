@@ -36,15 +36,24 @@ def grouped_softmax_loss(
     scores: np.ndarray,
     labels: np.ndarray,
     group_indices: tuple[np.ndarray, ...],
+    group_weights: np.ndarray | None = None,
 ) -> float:
     """Average grouped negative log-likelihood across dispatch events."""
 
     if not group_indices:
         return 0.0
     total = 0.0
-    for indices in group_indices:
+    total_weight = 0.0
+    weights = (
+        np.asarray(group_weights, dtype=float)
+        if group_weights is not None
+        else np.ones(len(group_indices), dtype=float)
+    )
+    for group_offset, indices in enumerate(group_indices):
         group_scores = scores[indices]
         shifted = group_scores - np.max(group_scores)
         log_denom = float(np.log(np.sum(np.exp(shifted))))
-        total += -float(np.dot(labels[indices], shifted - log_denom))
-    return total / len(group_indices)
+        weight = float(weights[group_offset])
+        total += weight * -float(np.dot(labels[indices], shifted - log_denom))
+        total_weight += weight
+    return total / max(total_weight, 1e-12)

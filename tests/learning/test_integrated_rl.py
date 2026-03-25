@@ -76,6 +76,11 @@ gae_lambda = 0.95
 ppo_epochs = 1
 total_episodes = 1
 
+[warm_start]
+epochs = 1
+learning_rate = 0.001
+teacher_policy = "prioritized_sipp_coordinator"
+
 [benchmark_gate]
 max_safety_violations = 0
 min_task_completion_rate = 0.0
@@ -93,8 +98,12 @@ output_dir = "integrated_rl_outputs"
     assert written["artifact"].exists()
     assert written["checkpoint"].exists()
     assert written["training_metrics"].exists()
+    assert written["warm_start_metrics"].exists()
     assert written["evaluation_rollouts"].exists()
     assert loaded.artifact.model_type == "end_to_end_macro_ppo"
+    assert loaded.artifact.metadata["selected_checkpoint_stage"] in {"warm_start", "ppo_final", "initial"}
+    assert "warm_start" in loaded.artifact.metadata["candidate_gate_evaluations"]
+    assert "ppo_final" in loaded.artifact.metadata["candidate_gate_evaluations"]
 
 
 def test_run_experiment_with_trained_end_to_end_macro_policy(tmp_path: Path) -> None:

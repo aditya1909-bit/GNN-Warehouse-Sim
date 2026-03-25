@@ -1,0 +1,52 @@
+name = "canonical_graph_dispatch_fit"
+seed = 7
+
+[dataset]
+source = "../../outputs/canonical_artifacts/dispatch_dataset"
+feature_names = [
+  "travel_to_pickup_time",
+  "pickup_to_dropoff_time",
+  "task_age",
+  "estimated_pickup_congestion_delay",
+  "estimated_dropoff_congestion_delay",
+]
+node_feature_names = [
+  "x",
+  "y",
+  "inbound_degree",
+  "outbound_degree",
+  "shortest_path_transit_count",
+  "is_robot_occupied",
+  "robot_count",
+  "is_ready_task_pickup",
+  "is_ready_task_dropoff",
+  "is_reserved_node",
+  "reserved_time_remaining",
+]
+edge_feature_names = [
+  "distance",
+  "travel_time",
+  "shortest_path_traversal_count",
+  "is_reserved_arc",
+  "reserved_time_remaining",
+]
+
+[split]
+split_unit = "scenario_seed"
+train_fraction = 0.7
+validation_fraction = 0.15
+test_fraction = 0.15
+
+[model]
+type = "graph_dispatch"
+hidden_dim = 64
+message_passing_layers = 2
+dropout = 0.0
+batch_size = 8
+learning_rate = 0.001
+max_epochs = 50
+patience = 10
+benchmark_weighting = true
+
+[reporting]
+output_dir = "../../outputs/canonical_artifacts/dispatch_graph"

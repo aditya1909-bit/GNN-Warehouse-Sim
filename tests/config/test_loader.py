@@ -171,3 +171,4 @@ def test_load_integrated_rl_training_config() -> None:
     assert config.name == "integrated_macro_ppo_training"
     assert len(config.curriculum.scenario_configs) == 2
     assert config.benchmark_gate.min_task_completion_rate == 0.98
+    assert config.warm_start.epochs == 0

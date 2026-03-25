@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import csv
+from copy import deepcopy
 import json
 from dataclasses import dataclass, replace
 from pathlib import Path
 
 import torch
+import torch.nn.functional as F
 from torch import nn, optim
 from torch_geometric.nn import GATv2Conv
 
@@ -471,6 +473,12 @@ def run_integrated_rl_training_from_config(config: IntegratedRLTrainingConfig) -
         task_dim=len(sample_observation.task_features[0]) if sample_observation.task_features else 5,
     )
     optimizer = optim.Adam(model.parameters(), lr=config.ppo.learning_rate)
+    warm_start_rows = _warm_start_model(model, scenarios, config)
+    warm_start_validation_rows, warm_start_gate_payload = _evaluate_integrated_macro_model(model, scenarios, config)
+    selected_state_dict = deepcopy(model.state_dict())
+    selected_validation_rows = warm_start_validation_rows
+    selected_gate_payload = warm_start_gate_payload
+    selected_stage = "warm_start" if config.warm_start.epochs > 0 else "initial"
     transitions: list[IntegratedPolicyStep] = []
     training_rows: list[dict[str, object]] = []
     scenario_index = 0
@@ -511,9 +519,15 @@ def run_integrated_rl_training_from_config(config: IntegratedRLTrainingConfig) -
 
     output_dir = config.output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
+    final_validation_rows, final_gate_payload = _evaluate_integrated_macro_model(model, scenarios, config)
+    if _is_better_gate_payload(final_gate_payload, selected_gate_payload):
+        selected_state_dict = deepcopy(model.state_dict())
+        selected_validation_rows = final_validation_rows
+        selected_gate_payload = final_gate_payload
+        selected_stage = "ppo_final"
+    model.load_state_dict(selected_state_dict)
     state_path = output_dir / "end_to_end_macro_ppo.pt"
     torch.save(model.state_dict(), state_path)
-    validation_rows, gate_payload = _evaluate_integrated_macro_model(model, scenarios, config)
     artifact = EndToEndMacroArtifact(
         artifact_version=1,
         model_type="end_to_end_macro_ppo",
@@ -526,7 +540,18 @@ def run_integrated_rl_training_from_config(config: IntegratedRLTrainingConfig) -
             "hidden_dim": 64,
             "state_dict_path": state_path.name,
         },
-        metadata={"benchmark_gate": gate_payload},
+        metadata={
+            "benchmark_gate": selected_gate_payload,
+            "selected_checkpoint_stage": selected_stage,
+            "candidate_gate_evaluations": {
+                "warm_start": warm_start_gate_payload,
+                "ppo_final": final_gate_payload,
+            },
+            "warm_start": {
+                "epochs": config.warm_start.epochs,
+                "teacher_policy": config.warm_start.teacher_policy,
+            },
+        },
     )
     artifact_path = write_end_to_end_macro_artifact(artifact, output_dir / "model_artifact.json")
     checkpoint_path = output_dir / "checkpoint.pt"
@@ -534,16 +559,64 @@ def run_integrated_rl_training_from_config(config: IntegratedRLTrainingConfig) -
     training_metrics_path = output_dir / "training_metrics.csv"
     evaluation_path = output_dir / "evaluation_rollouts.json"
     gate_path = output_dir / "claim_gate.json"
+    warm_start_metrics_path = output_dir / "warm_start_metrics.csv"
     _write_csv(training_metrics_path, training_rows)
-    evaluation_path.write_text(json.dumps(validation_rows, indent=2), encoding="utf-8")
-    gate_path.write_text(json.dumps(gate_payload, indent=2), encoding="utf-8")
+    _write_csv(warm_start_metrics_path, warm_start_rows)
+    evaluation_path.write_text(json.dumps(selected_validation_rows, indent=2), encoding="utf-8")
+    gate_path.write_text(json.dumps(selected_gate_payload, indent=2), encoding="utf-8")
     return {
         "artifact": artifact_path,
         "checkpoint": checkpoint_path,
         "training_metrics": training_metrics_path,
+        "warm_start_metrics": warm_start_metrics_path,
         "evaluation_rollouts": evaluation_path,
         "claim_gate": gate_path,
     }
+
+
+def _warm_start_model(
+    model: EndToEndMacroPolicyNetwork,
+    scenarios: list[ExperimentConfig],
+    config: IntegratedRLTrainingConfig,
+) -> list[dict[str, object]]:
+    if config.warm_start.epochs <= 0:
+        return []
+    teacher = _teacher_policy(config.warm_start.teacher_policy)
+    optimizer = optim.Adam(model.parameters(), lr=config.warm_start.learning_rate)
+    rows: list[dict[str, object]] = []
+    for epoch in range(config.warm_start.epochs):
+        epoch_losses: list[float] = []
+        matched = 0
+        total = 0
+        for scenario in scenarios:
+            for seed in config.curriculum.train_seeds:
+                env = IntegratedCoordinationRLEnv(scenario, seed)
+                observation = env.reset()
+                done = False
+                while not done:
+                    teacher_output = teacher.select_macros(observation)
+                    loss = _behavior_cloning_loss(model, observation, teacher_output.chosen_indices)
+                    optimizer.zero_grad()
+                    loss.backward()
+                    optimizer.step()
+                    epoch_losses.append(float(loss.item()))
+                    greedy_indices = model.act(observation, greedy=True).chosen_indices
+                    matched += sum(
+                        int(predicted == target)
+                        for predicted, target in zip(greedy_indices, teacher_output.chosen_indices, strict=True)
+                    )
+                    total += len(teacher_output.chosen_indices)
+                    next_observation, _reward, done, _info = env.step(teacher_output.chosen_indices, config.reward)
+                    observation = next_observation or observation
+        rows.append(
+            {
+                "warm_start_epoch": epoch,
+                "teacher_policy": config.warm_start.teacher_policy,
+                "mean_bc_loss": sum(epoch_losses) / len(epoch_losses) if epoch_losses else 0.0,
+                "teacher_action_match_rate": matched / total if total else 0.0,
+            }
+        )
+    return rows
 
 
 def _ppo_update(
@@ -656,6 +729,56 @@ def _evaluate_integrated_macro_model(
         ),
     }
     return validation_rows, gate_payload
+
+
+def _teacher_policy(name: str):
+    if name == "prioritized_sipp_coordinator":
+        return PrioritizedSIPPCoordinatorPolicy()
+    raise ValueError(f"Unsupported warm-start teacher policy: {name}")
+
+
+def _behavior_cloning_loss(
+    model: EndToEndMacroPolicyNetwork,
+    observation: IntegratedObservation,
+    chosen_indices: tuple[int, ...],
+) -> torch.Tensor:
+    graph_embedding = model.encode_graph(observation)
+    used_tasks: set[str] = set()
+    losses: list[torch.Tensor] = []
+    for robot_index, candidates in enumerate(observation.macro_candidates):
+        robot_embedding = model.robot_encoder(
+            torch.tensor(observation.robot_features[robot_index], dtype=torch.float32)
+        )
+        candidate_matrix = torch.stack(
+            [model.macro_encoder(_macro_feature_tensor(observation, candidate)) for candidate in candidates]
+        )
+        repeated_graph = graph_embedding.unsqueeze(0).expand(candidate_matrix.shape[0], -1)
+        repeated_robot = robot_embedding.unsqueeze(0).expand(candidate_matrix.shape[0], -1)
+        logits = model.candidate_head(torch.cat([repeated_graph, repeated_robot, candidate_matrix], dim=-1)).squeeze(-1)
+        mask = torch.tensor(
+            [candidate.task_id is None or candidate.task_id not in used_tasks for candidate in candidates],
+            dtype=torch.bool,
+        )
+        masked_logits = logits.masked_fill(~mask, float("-inf"))
+        target_index = int(chosen_indices[robot_index])
+        losses.append(F.cross_entropy(masked_logits.unsqueeze(0), torch.tensor([target_index])))
+        task_id = candidates[target_index].task_id
+        if task_id is not None:
+            used_tasks.add(task_id)
+    return torch.stack(losses).mean() if losses else torch.tensor(0.0)
+
+
+def _is_better_gate_payload(candidate: dict[str, object], incumbent: dict[str, object]) -> bool:
+    return _gate_selection_key(candidate) > _gate_selection_key(incumbent)
+
+
+def _gate_selection_key(payload: dict[str, object]) -> tuple[float, float, float, float]:
+    return (
+        1.0 if bool(payload.get("claim_ready", False)) else 0.0,
+        -float(payload.get("observed_safety_violations", 0.0)),
+        float(payload.get("observed_task_completion_rate", 0.0)),
+        float(payload.get("observed_throughput_ratio_vs_baseline", 0.0)),
+    )
 
 
 def _macro_feature_tensor(observation: IntegratedObservation, candidate) -> torch.Tensor:

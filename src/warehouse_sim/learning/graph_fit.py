@@ -29,6 +29,7 @@ class GraphDispatchFitConfig:
     max_epochs: int = 50
     patience: int = 10
     seed: int = 0
+    benchmark_weighting: bool = False
 
 
 def fit_graph_dispatch_model(
@@ -62,10 +63,20 @@ def fit_graph_dispatch_model(
 
     for epoch in range(1, config.max_epochs + 1):
         model.train()
-        train_loss = _dataset_loss(model, train_dataset, optimizer=optimizer)
+        train_loss = _dataset_loss(
+            model,
+            train_dataset,
+            optimizer=optimizer,
+            example_weights=train_dataset.group_weights() if config.benchmark_weighting else None,
+        )
         model.eval()
         with torch.no_grad():
-            validation_loss = _dataset_loss(model, validation_dataset, optimizer=None)
+            validation_loss = _dataset_loss(
+                model,
+                validation_dataset,
+                optimizer=None,
+                example_weights=validation_dataset.group_weights() if config.benchmark_weighting else None,
+            )
         history.append(
             {
                 "epoch": float(epoch),
@@ -110,6 +121,7 @@ def fit_graph_dispatch_model(
                 "best_epoch": best_epoch,
                 "best_validation_loss": best_loss,
                 "parameter_count": sum(parameter.numel() for parameter in model.parameters()),
+                "benchmark_weighting": config.benchmark_weighting,
             }
         },
     )
@@ -133,11 +145,13 @@ def _dataset_loss(
     dataset: GraphDispatchDataset,
     *,
     optimizer: optim.Optimizer | None,
+    example_weights = None,
 ) -> float:
     if not dataset.examples:
         return 0.0
     total = 0.0
-    for example in dataset.examples:
+    total_weight = 0.0
+    for example_index, example in enumerate(dataset.examples):
         node_features = torch.tensor(example.node_features, dtype=torch.float32)
         edge_index = torch.tensor(example.edge_index, dtype=torch.long)
         edge_features = torch.tensor(example.edge_features, dtype=torch.float32)
@@ -151,9 +165,12 @@ def _dataset_loss(
         )
         target_index = int(torch.argmax(labels).item())
         loss = torch.nn.functional.cross_entropy(logits.unsqueeze(0), torch.tensor([target_index]))
-        total += float(loss.item())
+        weight = 1.0 if example_weights is None else float(example_weights[example_index].item())
+        weighted_loss = loss * weight
+        total += float(weighted_loss.item())
+        total_weight += weight
         if optimizer is not None:
             optimizer.zero_grad()
-            loss.backward()
+            weighted_loss.backward()
             optimizer.step()
-    return total / len(dataset.examples)
+    return total / max(total_weight, 1e-12)

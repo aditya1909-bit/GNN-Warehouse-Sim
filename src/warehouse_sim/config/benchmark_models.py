@@ -16,7 +16,9 @@ class BenchmarkConfig:
     scenario_configs: tuple[Path, ...]
     policies: tuple[str, ...]
     output_dir: Path
+    scenario_family: str = "custom"
     write_plots: bool = False
+    write_manifest: bool = True
     seeds: tuple[int, ...] | None = None
     policy_artifacts: dict[str, Path] = field(default_factory=dict)
 
@@ -27,5 +29,7 @@ class BenchmarkConfig:
             raise ConfigValidationError("benchmark.scenario_configs must be non-empty.")
         if not self.policies:
             raise ConfigValidationError("benchmark.policies must be non-empty.")
+        if not self.scenario_family:
+            raise ConfigValidationError("benchmark.scenario_family must be non-empty.")
         if self.seeds is not None and not self.seeds:
             raise ConfigValidationError("benchmark.seeds must be non-empty.")

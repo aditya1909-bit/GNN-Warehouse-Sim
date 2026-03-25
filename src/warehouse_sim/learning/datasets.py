@@ -17,6 +17,7 @@ from warehouse_sim.learning.features import (
     candidate_feature_names_from_columns,
     validate_candidate_feature_names,
 )
+from warehouse_sim.learning.objective_weighting import benchmark_weight_from_row
 
 
 def load_dispatch_observation_dataset(
@@ -50,6 +51,11 @@ def load_dispatch_observation_dataset(
 
         for row in dispatch_rows:
             dispatch_index = int(row["dispatch_index"])
+            scenario_seed = (
+                f"{scenario_name}::seed_{demand_seed}"
+                if demand_seed is not None
+                else f"{scenario_name}::{run_id}"
+            )
             enriched = dict(row)
             enriched.update(
                 {
@@ -59,7 +65,9 @@ def load_dispatch_observation_dataset(
                     "experiment_name": experiment_name,
                     "source_policy_name": source_policy_name,
                     "demand_seed": demand_seed,
+                    "scenario_seed": scenario_seed,
                     "source_manifest_path": source_manifest_path,
+                    "benchmark_weight": benchmark_weight_from_row(row),
                     "dispatch_group_id": f"{run_id}::dispatch_{dispatch_index}",
                 }
             )
@@ -137,6 +145,8 @@ class DispatchObservationDataset:
             return np.asarray(self.metadata["run_id"], dtype=object)
         if split_unit == "scenario":
             return np.asarray(self.metadata["scenario_name"], dtype=object)
+        if split_unit == "scenario_seed":
+            return np.asarray(self.metadata["scenario_seed"], dtype=object)
         raise ValueError(f"Unsupported split unit: {split_unit}")
 
     def subset(self, indices: np.ndarray) -> "DispatchObservationDataset":
@@ -163,6 +173,21 @@ class DispatchObservationDataset:
         for index, group_id in enumerate(self.group_ids.tolist()):
             positions.setdefault(str(group_id), []).append(index)
         return tuple(np.asarray(indices, dtype=int) for indices in positions.values())
+
+    def group_weights(self) -> np.ndarray:
+        """Return one deployment-aware weight per dispatch group in group order."""
+
+        weights = []
+        for indices in self.iter_group_indices():
+            selected_index = next(
+                (int(index) for index in indices.tolist() if int(self.labels[index]) == 1),
+                int(indices[0]),
+            )
+            if "benchmark_weight" in self.metadata:
+                weights.append(float(self.metadata["benchmark_weight"][selected_index]))
+            else:
+                weights.append(1.0)
+        return np.asarray(weights, dtype=float)
 
 
 @dataclass(frozen=True)
@@ -191,18 +216,6 @@ def _resolve_dataset_sources(source: Path) -> tuple[_DatasetSource, ...]:
     if not source.is_dir():
         raise ValueError(f"Dataset source does not exist: {source}")
 
-    direct_dispatch = source / "dispatch_observations.csv"
-    direct_manifest = source / "dataset_manifest.json"
-    if direct_dispatch.exists():
-        payload = json.loads(direct_manifest.read_text(encoding="utf-8")) if direct_manifest.exists() else None
-        return (
-            _DatasetSource(
-                dispatch_observations_path=direct_dispatch.resolve(),
-                manifest_path=direct_manifest.resolve() if direct_manifest.exists() else None,
-                manifest_payload=payload,
-            ),
-        )
-
     manifest_paths = tuple(sorted(source.glob("**/dataset_manifest.json")))
     if manifest_paths:
         resolved_sources: list[_DatasetSource] = []
@@ -217,6 +230,18 @@ def _resolve_dataset_sources(source: Path) -> tuple[_DatasetSource, ...]:
                 )
             )
         return tuple(resolved_sources)
+
+    direct_dispatch = source / "dispatch_observations.csv"
+    direct_manifest = source / "dataset_manifest.json"
+    if direct_dispatch.exists():
+        payload = json.loads(direct_manifest.read_text(encoding="utf-8")) if direct_manifest.exists() else None
+        return (
+            _DatasetSource(
+                dispatch_observations_path=direct_dispatch.resolve(),
+                manifest_path=direct_manifest.resolve() if direct_manifest.exists() else None,
+                manifest_payload=payload,
+            ),
+        )
 
     dispatch_paths = tuple(sorted(source.glob("**/dispatch_observations.csv")))
     if dispatch_paths:

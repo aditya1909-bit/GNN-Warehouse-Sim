@@ -25,6 +25,7 @@ class GroupedMLPFitConfig:
     l2_regularization: float = 1e-4
     patience: int = 30
     seed: int = 0
+    benchmark_weighting: bool = False
 
     def __post_init__(self) -> None:
         if self.hidden_dim <= 0:
@@ -52,10 +53,14 @@ def fit_grouped_mlp_model(
     x_train_scaled, means, scales = standardize_feature_matrix(train_split.dataset.feature_matrix)
     y_train = train_split.dataset.labels.astype(float)
     train_groups = train_split.dataset.iter_group_indices()
+    train_group_weights = train_split.dataset.group_weights() if config.benchmark_weighting else None
 
     x_validation_scaled = (validation_split.dataset.feature_matrix - means) / scales
     y_validation = validation_split.dataset.labels.astype(float)
     validation_groups = validation_split.dataset.iter_group_indices()
+    validation_group_weights = (
+        validation_split.dataset.group_weights() if config.benchmark_weighting else None
+    )
 
     rng = np.random.default_rng(config.seed)
     input_dim = x_train_scaled.shape[1]
@@ -80,6 +85,7 @@ def fit_grouped_mlp_model(
             x_train_scaled,
             y_train,
             train_groups,
+            train_group_weights,
             hidden_weights,
             hidden_bias,
             output_weights,
@@ -99,7 +105,12 @@ def fit_grouped_mlp_model(
             output_weights,
             output_bias,
         )
-        validation_loss = grouped_softmax_loss(validation_scores, y_validation, validation_groups)
+        validation_loss = grouped_softmax_loss(
+            validation_scores,
+            y_validation,
+            validation_groups,
+            validation_group_weights,
+        )
         history.append(
             {
                 "epoch": float(epoch),
@@ -143,6 +154,7 @@ def fit_grouped_mlp_model(
                 "hidden_dim": config.hidden_dim,
                 "best_epoch": best_epoch,
                 "best_validation_loss": best_validation_loss,
+                "benchmark_weighting": config.benchmark_weighting,
             }
         },
     )
@@ -175,6 +187,7 @@ def _mlp_loss_and_gradient(
     feature_matrix: np.ndarray,
     labels: np.ndarray,
     group_indices: tuple[np.ndarray, ...],
+    group_weights: np.ndarray | None,
     hidden_weights: np.ndarray,
     hidden_bias: np.ndarray,
     output_weights: np.ndarray,
@@ -186,8 +199,14 @@ def _mlp_loss_and_gradient(
     gradient_output_weights = np.zeros_like(output_weights)
     gradient_output_bias = 0.0
     total_loss = 0.0
+    weights_by_group = (
+        np.asarray(group_weights, dtype=float)
+        if group_weights is not None
+        else np.ones(len(group_indices), dtype=float)
+    )
+    total_weight = 0.0
 
-    for indices in group_indices:
+    for group_offset, indices in enumerate(group_indices):
         group_features = feature_matrix[indices]
         group_labels = labels[indices]
         hidden_linear = group_features @ hidden_weights + hidden_bias
@@ -196,17 +215,19 @@ def _mlp_loss_and_gradient(
         shifted = scores - np.max(scores)
         exponentiated = np.exp(shifted)
         probabilities = exponentiated / np.sum(exponentiated)
-        total_loss += -float(np.dot(group_labels, shifted - np.log(np.sum(exponentiated))))
+        weight = float(weights_by_group[group_offset])
+        total_loss += weight * -float(np.dot(group_labels, shifted - np.log(np.sum(exponentiated))))
         difference = probabilities - group_labels
 
-        gradient_output_weights += hidden_activation.T @ difference
-        gradient_output_bias += float(np.sum(difference))
+        gradient_output_weights += weight * (hidden_activation.T @ difference)
+        gradient_output_bias += weight * float(np.sum(difference))
         hidden_gradient = np.outer(difference, output_weights)
         relu_gradient = hidden_gradient * (hidden_linear > 0.0)
-        gradient_hidden_weights += group_features.T @ relu_gradient
-        gradient_hidden_bias += np.sum(relu_gradient, axis=0)
+        gradient_hidden_weights += weight * (group_features.T @ relu_gradient)
+        gradient_hidden_bias += weight * np.sum(relu_gradient, axis=0)
+        total_weight += weight
 
-    normalizer = max(len(group_indices), 1)
+    normalizer = max(total_weight, 1e-12)
     total_loss = total_loss / normalizer
     total_loss += 0.5 * l2_regularization * (
         float(np.sum(hidden_weights * hidden_weights)) + float(np.dot(output_weights, output_weights))
