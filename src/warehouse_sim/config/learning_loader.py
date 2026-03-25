@@ -36,6 +36,12 @@ def load_offline_training_config(path: Path) -> OfflineTrainingConfig:
             feature_names=None
             if dataset.get("feature_names") is None
             else tuple(str(item) for item in dataset["feature_names"]),
+            node_feature_names=None
+            if dataset.get("node_feature_names") is None
+            else tuple(str(item) for item in dataset["node_feature_names"]),
+            edge_feature_names=None
+            if dataset.get("edge_feature_names") is None
+            else tuple(str(item) for item in dataset["edge_feature_names"]),
         ),
         split=OfflineSplitConfig(
             split_unit=str(split.get("split_unit", "dispatch_group")),
@@ -50,6 +56,9 @@ def load_offline_training_config(path: Path) -> OfflineTrainingConfig:
             l2_regularization=float(model.get("l2_regularization", 1e-4)),
             patience=int(model.get("patience", 25)),
             hidden_dim=int(model.get("hidden_dim", 16)),
+            message_passing_layers=int(model.get("message_passing_layers", 2)),
+            dropout=float(model.get("dropout", 0.0)),
+            batch_size=int(model.get("batch_size", 8)),
         ),
         reporting=OfflineReportingConfig(output_dir=output_dir),
     )

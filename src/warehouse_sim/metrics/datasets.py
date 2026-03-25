@@ -30,11 +30,15 @@ def write_observation_dataset(
     nodes_path = output_dir / "graph_nodes.csv"
     arcs_path = output_dir / "graph_arcs.csv"
     dispatch_path = output_dir / "dispatch_observations.csv"
+    dispatch_nodes_path = output_dir / "dispatch_node_observations.csv"
+    dispatch_arcs_path = output_dir / "dispatch_arc_observations.csv"
     manifest_path = output_dir / "dataset_manifest.json"
 
     _write_csv(nodes_path, [asdict(node) for node in graph_features.nodes])
     _write_csv(arcs_path, [asdict(arc) for arc in graph_features.arcs])
     _write_csv(dispatch_path, [asdict(record) for record in result.dispatch_traces])
+    _write_csv(dispatch_nodes_path, [asdict(record) for record in result.dispatch_node_observations])
+    _write_csv(dispatch_arcs_path, [asdict(record) for record in result.dispatch_arc_observations])
 
     manifest = {
         "experiment_name": experiment_name,
@@ -45,6 +49,8 @@ def write_observation_dataset(
             "graph_nodes": nodes_path.name,
             "graph_arcs": arcs_path.name,
             "dispatch_observations": dispatch_path.name,
+            "dispatch_node_observations": dispatch_nodes_path.name,
+            "dispatch_arc_observations": dispatch_arcs_path.name,
         },
     }
     if dataset_metadata:
@@ -55,6 +61,8 @@ def write_observation_dataset(
         "graph_nodes": nodes_path,
         "graph_arcs": arcs_path,
         "dispatch_observations": dispatch_path,
+        "dispatch_node_observations": dispatch_nodes_path,
+        "dispatch_arc_observations": dispatch_arcs_path,
     }
 
 

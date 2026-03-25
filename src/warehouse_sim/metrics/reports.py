@@ -25,6 +25,10 @@ def write_simulation_report(
     executions_path = output_dir / "executions.csv"
     queue_path = output_dir / "queue_snapshots.csv"
     robot_metrics_path = output_dir / "robot_metrics.csv"
+    robot_trajectories_path = output_dir / "robot_trajectories.csv"
+    macro_decisions_path = output_dir / "macro_decisions.csv"
+    collision_events_path = output_dir / "collision_events.csv"
+    planner_plans_path = output_dir / "planner_plans.csv"
 
     summary_payload = {
         "experiment_name": experiment_name,
@@ -38,13 +42,25 @@ def write_simulation_report(
     _write_csv(executions_path, [asdict(execution) for execution in result.executions])
     _write_csv(queue_path, [asdict(snapshot) for snapshot in result.queue_snapshots])
     _write_csv(robot_metrics_path, [asdict(metric) for metric in result.metrics.robot_metrics])
+    _write_csv(robot_trajectories_path, [asdict(record) for record in result.robot_trajectories])
+    _write_csv(macro_decisions_path, [asdict(record) for record in result.macro_decisions])
+    _write_csv(collision_events_path, [asdict(record) for record in result.collision_events])
+    _write_csv(planner_plans_path, [asdict(record) for record in result.planner_plans])
 
-    return {
+    written = {
         "summary": summary_path,
         "executions": executions_path,
         "queue_snapshots": queue_path,
         "robot_metrics": robot_metrics_path,
     }
+    if result.robot_trajectories:
+        written["robot_trajectories"] = robot_trajectories_path
+    if result.macro_decisions:
+        written["macro_decisions"] = macro_decisions_path
+    if result.collision_events or result.planner_plans:
+        written["collision_events"] = collision_events_path
+        written["planner_plans"] = planner_plans_path
+    return written
 
 
 def _write_csv(path: Path, rows: list[dict[str, object]]) -> None:

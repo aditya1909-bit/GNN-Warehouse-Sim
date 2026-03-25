@@ -5,7 +5,14 @@ from __future__ import annotations
 import csv
 from pathlib import Path
 
+from warehouse_sim.agents import RobotSpec
+from warehouse_sim.environment import WarehouseEnvironment
+from warehouse_sim.graph import NodeType, SyntheticGridLayoutConfig, build_synthetic_grid_layout
 from warehouse_sim.learning.cli import run_offline_training_from_path
+from warehouse_sim.metrics import write_observation_dataset
+from warehouse_sim.policies import FIFODispatchPolicy
+from warehouse_sim.simulation import SimulationConfig, run_simulation
+from warehouse_sim.tasks import Task
 
 
 def test_run_offline_training_from_config_path(tmp_path: Path) -> None:
@@ -56,6 +63,52 @@ output_dir = "offline_outputs"
     assert written["artifact"].exists()
     assert written["training_summary"].exists()
     assert written["train_evaluation"].exists()
+    assert written["validation_predictions"].exists()
+
+
+def test_run_graph_offline_training_from_config_path(tmp_path: Path) -> None:
+    written_dataset = _write_graph_dataset(tmp_path / "dataset")
+    config_path = tmp_path / "offline_graph_training.toml"
+    config_path.write_text(
+        """
+name = "offline_graph_dispatch_fit_test"
+seed = 7
+
+[dataset]
+source = "dataset/dataset_manifest.json"
+feature_names = ["travel_to_pickup_time", "task_age"]
+node_feature_names = ["x", "y", "robot_count", "is_ready_task_pickup"]
+edge_feature_names = ["distance", "is_reserved_arc"]
+
+[split]
+split_unit = "dispatch_group"
+train_fraction = 0.6
+validation_fraction = 0.4
+test_fraction = 0.0
+
+[model]
+type = "graph_dispatch"
+hidden_dim = 16
+message_passing_layers = 2
+dropout = 0.0
+batch_size = 4
+learning_rate = 0.01
+max_epochs = 3
+patience = 2
+
+[reporting]
+output_dir = "offline_graph_outputs"
+""".strip(),
+        encoding="utf-8",
+    )
+
+    written = run_offline_training_from_path(config_path)
+
+    assert written_dataset["dispatch_node_observations"].exists()
+    assert written_dataset["dispatch_arc_observations"].exists()
+    assert written["artifact"].exists()
+    assert written["state_dict"].exists()
+    assert written["training_summary"].exists()
     assert written["validation_predictions"].exists()
 
 
@@ -110,3 +163,41 @@ def _row(
         "estimated_pickup_blocked_segments": 0,
         "estimated_dropoff_blocked_segments": 0,
     }
+
+
+def _write_graph_dataset(output_dir: Path) -> dict[str, Path]:
+    environment = WarehouseEnvironment(
+        build_synthetic_grid_layout(
+            SyntheticGridLayoutConfig(
+                rows=2,
+                columns=3,
+                special_node_types={(0, 0): NodeType.STORAGE, (1, 2): NodeType.DROPOFF},
+            )
+        )
+    )
+    result = run_simulation(
+        environment=environment,
+        tasks=(
+            Task(
+                task_id="task_1",
+                release_time=0.0,
+                pickup_node="r0_c0",
+                dropoff_node="r1_c2",
+                service_time_estimate=1.0,
+            ),
+            Task(
+                task_id="task_2",
+                release_time=0.0,
+                pickup_node="r0_c1",
+                dropoff_node="r1_c2",
+                service_time_estimate=1.0,
+            ),
+        ),
+        robots=(
+            RobotSpec(robot_id="robot_1", initial_node="r1_c0"),
+            RobotSpec(robot_id="robot_2", initial_node="r1_c1"),
+        ),
+        dispatch_policy=FIFODispatchPolicy(),
+        config=SimulationConfig(),
+    )
+    return write_observation_dataset(output_dir, environment, result, experiment_name="graph_cli_dataset_test")

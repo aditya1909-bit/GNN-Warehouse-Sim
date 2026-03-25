@@ -9,7 +9,15 @@ from warehouse_sim.config import ExperimentConfig, load_experiment_config
 from warehouse_sim.demand import DemandGenerationConfig, generate_task_demand
 from warehouse_sim.environment import WarehouseEnvironment
 from warehouse_sim.graph import NodeType, SyntheticGridLayoutConfig, build_synthetic_grid_layout
+from warehouse_sim.integrated.engine import run_integrated_simulation
+from warehouse_sim.integrated.policies import (
+    EndToEndMacroArtifactPolicy,
+    OptimalMAPFCoordinatorPolicy,
+    PrioritizedSIPPCoordinatorPolicy,
+    RandomMacroPolicy,
+)
 from warehouse_sim.learning.artifacts import load_dispatch_model_artifact
+from warehouse_sim.learning.graph_model import load_graph_dispatch_model
 from warehouse_sim.metrics import (
     write_default_plots,
     write_observation_dataset,
@@ -19,14 +27,21 @@ from warehouse_sim.policies import (
     ArtifactScoringDispatchPolicy,
     CongestionAwareNearestRobotTaskPolicy,
     FIFODispatchPolicy,
+    GraphDispatchArtifactPolicy,
     LinearScoringDispatchPolicy,
     NearestRobotTaskPolicy,
     NearestTaskForIdleRobotPolicy,
     RandomDispatchPolicy,
 )
 from warehouse_sim.simulation.engine import run_simulation
-from warehouse_sim.simulation.models import ExecutionModel, SimulationConfig, SimulationResult
-from warehouse_sim.tasks import DemandTaskAdapterConfig, tasks_from_demand_records
+from warehouse_sim.simulation.models import (
+    CoordinationMode,
+    CoordinationRuntimeConfig,
+    ExecutionModel,
+    SimulationConfig,
+    SimulationResult,
+)
+from warehouse_sim.tasks import DemandTaskAdapterConfig, Task, tasks_from_demand_records
 
 
 def run_experiment_from_config(
@@ -36,6 +51,60 @@ def run_experiment_from_config(
     force_write_observation_dataset: bool | None = None,
 ) -> tuple[SimulationResult, dict[str, Path]]:
     """Build and run a simulation experiment from a loaded config."""
+
+    environment, tasks, robots, simulation_config = build_experiment_inputs(config)
+    if simulation_config.coordination_mode == CoordinationMode.INTEGRATED:
+        result = run_integrated_simulation(
+            environment=environment,
+            tasks=tasks,
+            robots=robots,
+            coordinator_policy=_build_integrated_policy(config),
+            config=simulation_config,
+        )
+    else:
+        result = run_simulation(
+            environment=environment,
+            tasks=tasks,
+            robots=robots,
+            dispatch_policy=_build_policy(config),
+            config=simulation_config,
+        )
+
+    output_dir = output_dir_override or config.reporting.output_dir
+    written_paths = write_simulation_report(output_dir=output_dir, result=result, experiment_name=config.name)
+    write_plots = config.reporting.write_plots if force_write_plots is None else force_write_plots
+    if write_plots:
+        queue_plot, robot_plot = write_default_plots(output_dir=output_dir, result=result)
+        written_paths["queue_plot"] = queue_plot
+        written_paths["robot_utilization_plot"] = robot_plot
+    write_dataset = (
+        config.reporting.write_observation_dataset
+        if force_write_observation_dataset is None
+        else force_write_observation_dataset
+    )
+    if write_dataset:
+        written_paths.update(
+            write_observation_dataset(
+                output_dir=output_dir,
+                environment=environment,
+                result=result,
+                experiment_name=config.name,
+                dataset_metadata={
+                    "scenario_name": config.name,
+                    "run_id": f"{config.name}__{config.simulation.policy}__seed_{config.demand.seed}",
+                    "demand_seed": config.demand.seed,
+                    "execution_model": config.simulation.execution_model,
+                    "coordination_mode": config.simulation.coordination_mode,
+                },
+            )
+        )
+    return result, written_paths
+
+
+def build_experiment_inputs(
+    config: ExperimentConfig,
+) -> tuple[WarehouseEnvironment, tuple[Task, ...], tuple[RobotSpec, ...], SimulationConfig]:
+    """Build the reusable environment, task, robot, and simulation inputs for an experiment."""
 
     graph = build_synthetic_grid_layout(
         SyntheticGridLayoutConfig(
@@ -92,46 +161,29 @@ def run_experiment_from_config(
         )
         for index in range(config.robots.count)
     )
-    result = run_simulation(
-        environment=environment,
-        tasks=tasks,
-        robots=robots,
-        dispatch_policy=_build_policy(config),
-        config=SimulationConfig(
+    return (
+        environment,
+        tasks,
+        robots,
+        SimulationConfig(
             horizon_seconds=config.simulation.horizon_seconds,
             continue_until_all_tasks_complete=config.simulation.continue_until_all_tasks_complete,
+            coordination_mode=CoordinationMode(config.simulation.coordination_mode),
             execution_model=ExecutionModel(config.simulation.execution_model),
+            coordination=(
+                None
+                if config.coordination is None
+                else CoordinationRuntimeConfig(
+                    control_dt=config.coordination.control_dt,
+                    replan_period=config.coordination.replan_period,
+                    robot_radius=config.coordination.robot_radius,
+                    collision_clearance=config.coordination.collision_clearance,
+                    k_shortest_paths=config.coordination.k_shortest_paths,
+                    max_route_options_per_pair=config.coordination.max_route_options_per_pair,
+                )
+            ),
         ),
     )
-
-    output_dir = output_dir_override or config.reporting.output_dir
-    written_paths = write_simulation_report(output_dir=output_dir, result=result, experiment_name=config.name)
-    write_plots = config.reporting.write_plots if force_write_plots is None else force_write_plots
-    if write_plots:
-        queue_plot, robot_plot = write_default_plots(output_dir=output_dir, result=result)
-        written_paths["queue_plot"] = queue_plot
-        written_paths["robot_utilization_plot"] = robot_plot
-    write_dataset = (
-        config.reporting.write_observation_dataset
-        if force_write_observation_dataset is None
-        else force_write_observation_dataset
-    )
-    if write_dataset:
-        written_paths.update(
-            write_observation_dataset(
-                output_dir=output_dir,
-                environment=environment,
-                result=result,
-                experiment_name=config.name,
-                dataset_metadata={
-                    "scenario_name": config.name,
-                    "run_id": f"{config.name}__{config.simulation.policy}__seed_{config.demand.seed}",
-                    "demand_seed": config.demand.seed,
-                    "execution_model": config.simulation.execution_model,
-                },
-            )
-        )
-    return result, written_paths
 
 
 def run_experiment_from_path(
@@ -185,7 +237,35 @@ def _build_policy(config: ExperimentConfig):
         if artifact.model_type != "grouped_mlp":
             raise ValueError(f"Expected grouped_mlp artifact for trained_mlp_model, got {artifact.model_type}")
         return ArtifactScoringDispatchPolicy(artifact=artifact, policy_name=policy_name)
+    if policy_name == "trained_graph_dispatch_model":
+        assert config.policy_model is not None
+        assert config.policy_model.artifact_path is not None
+        loaded = load_graph_dispatch_model(config.policy_model.artifact_path)
+        return GraphDispatchArtifactPolicy(
+            model=loaded.model,
+            candidate_feature_names=tuple(loaded.artifact.parameters["candidate_feature_names"]),
+            node_feature_names=tuple(loaded.artifact.parameters["node_feature_names"]),
+            edge_feature_names=tuple(loaded.artifact.parameters["edge_feature_names"]),
+        )
     raise ValueError(f"Unknown policy: {policy_name}")
+
+
+def _build_integrated_policy(config: ExperimentConfig):
+    policy_name = config.simulation.policy
+    if policy_name == "prioritized_sipp_coordinator":
+        return PrioritizedSIPPCoordinatorPolicy()
+    if policy_name == "optimal_mapf_coordinator":
+        return OptimalMAPFCoordinatorPolicy()
+    if policy_name == "random_macro":
+        return RandomMacroPolicy(seed=config.demand.seed)
+    if policy_name == "trained_end_to_end_macro_ppo":
+        assert config.policy_model is not None
+        assert config.policy_model.artifact_path is not None
+        from warehouse_sim.learning.integrated_rl import load_end_to_end_macro_model
+
+        loaded = load_end_to_end_macro_model(config.policy_model.artifact_path)
+        return EndToEndMacroArtifactPolicy(loaded.model)
+    raise ValueError(f"Unknown integrated policy: {policy_name}")
 
 
 def _window_start(value: float | None, horizon_seconds: float) -> float:

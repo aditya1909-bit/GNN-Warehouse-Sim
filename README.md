@@ -1,10 +1,10 @@
 # GNN-Warehouse-Sim
 
-Research-grade warehouse dispatch-simulation scaffold with validated demand generation, warehouse graph/task primitives, discrete-event execution, config-driven experiments, benchmark scenarios, observation export, offline candidate-scoring model fitting, and simple observation-driven baselines.
+Research-grade warehouse warehouse-coordination scaffold with validated demand generation, warehouse graph/task primitives, config-driven experiments, dispatch learning, and an integrated MAPF-style coordination stack.
 
 ## Current Status
 
-This repository is still not a full warehouse simulator, and it still does not implement learned GNN policies.
+This repository is still not a full warehouse simulator, but it now includes both a dispatch-centric stack and an integrated coordination stack with continuous graph execution, prioritized SIPP-style planning, an exact current-epoch MAPF routing baseline, and an experimental end-to-end macro PPO controller.
 
 Implemented and tested now:
 
@@ -18,11 +18,19 @@ Implemented and tested now:
 - Offline fitting pipeline for candidate-scoring dispatch models
 - Trained linear scorer artifact loading inside live simulation runs
 - Modest nonlinear learned baseline: a small MLP over candidate features
+- PyG-based graph-conditioned dispatch scorer with message passing over the warehouse graph
+- Masked PPO fine-tuning at dispatch-event boundaries
+- Integrated coordination mode with continuous-time graph execution
+- Prioritized SIPP-style centralized planner
+- Exact joint-search MAPF baseline over the current integrated macro candidate set
+- Explicit robot trajectory, macro-decision, planner-plan, and collision-event outputs
+- End-to-end macro PPO training and artifact loading for integrated mode
 - Offline evaluation outputs for dispatch-ranking models
 - Congestion-aware heuristic baseline: `congestion_aware_nearest_robot_task`
 - Config-driven experiments and benchmark manifests
 - Machine-readable reporting outputs: `summary.json`, `executions.csv`, `queue_snapshots.csv`, `robot_metrics.csv`
 - Graph featurization, dispatch-time observations, and observation-dataset export
+- Dispatch-indexed graph-state export through `dispatch_node_observations.csv` and `dispatch_arc_observations.csv`
 - Interaction-aware execution modes with explicit shortest-path materialization plus simplified node/edge reservation models
 - Congestion-sensitive metrics, benchmark scenarios, and pytest coverage across the stack
 
@@ -34,14 +42,11 @@ Implemented now, but still deliberately simplified:
 
 Still not implemented:
 
-- Full MAPF or optimal multi-agent planning
-- Continuous-motion collision simulation
-- Battery behavior or charging policies
-- Learned GNN dispatch policies
-- Reinforcement-learning pipelines
-- End-to-end learned warehouse coordination
+- global warehouse-level optimal MAPF guarantees across dynamic task allocation and future releases
+- battery behavior or charging policies
+- free-space off-graph motion physics
 
-The current scope is: multi-robot dispatch over a warehouse graph with optional congestion-aware realized execution. It is meant as a research scaffold for coordination experiments, not as an overclaimed end-state simulator.
+The current scope is: a dispatch-centric simulator plus an integrated coordination stack over the same warehouse graph. The dispatch stack remains the honest baseline for candidate scoring and congestion-aware execution. The integrated stack adds continuous-time graph coordination and MAPF-style planning. The learned integrated controller is still benchmark-gated before stronger end-to-end coordination claims.
 
 ## Install
 
@@ -99,6 +104,20 @@ PYTHONPATH=src python3 -m warehouse_sim.simulation.benchmark_cli \
   --config configs/congestion_policy_benchmark.toml
 ```
 
+Integrated coordination benchmark:
+
+```bash
+PYTHONPATH=src python3 -m warehouse_sim.simulation.benchmark_cli \
+  --config configs/integrated_coordination_benchmark.toml
+```
+
+Integrated exact-routing benchmark:
+
+```bash
+PYTHONPATH=src python3 -m warehouse_sim.simulation.benchmark_cli \
+  --config configs/integrated_optimal_mapf_benchmark.toml
+```
+
 The benchmark layer also supports optional repeated demand seeds through `benchmark.seeds`.
 
 Repeated-seed benchmark outputs now include:
@@ -121,6 +140,24 @@ Fit the modest nonlinear baseline:
 python3 scripts/run_offline_policy_fitting.py train --config configs/offline_mlp_fit.toml
 ```
 
+Fit the graph-conditioned dispatch scorer:
+
+```bash
+python3 scripts/run_offline_policy_fitting.py train --config configs/offline_graph_dispatch_fit.toml
+```
+
+Fine-tune the graph scorer with masked PPO:
+
+```bash
+python3 scripts/run_offline_policy_fitting.py train-rl --config configs/graph_dispatch_rl_fine_tune.toml
+```
+
+Train the integrated end-to-end macro controller:
+
+```bash
+python3 scripts/run_offline_policy_fitting.py train-integrated-rl --config configs/integrated_macro_ppo_training.toml
+```
+
 Evaluate an existing artifact:
 
 ```bash
@@ -130,7 +167,7 @@ PYTHONPATH=src python3 -m warehouse_sim.learning.cli evaluate \
   --output-dir outputs/offline/evaluation
 ```
 
-The learning pipeline still operates on exported candidate rows from `dispatch_observations.csv`. It does not train a GNN, and it does not implement RL.
+The learning pipeline still stays aligned with simulator exports. Linear and MLP models consume candidate rows from `dispatch_observations.csv`. The graph-conditioned model additionally consumes dispatch-level node and arc tables exported by the simulator. This is still dispatch candidate scoring, not full learned warehouse coordination.
 
 ## Run Trained Artifacts In Simulation
 
@@ -148,6 +185,14 @@ Supported trained policy names are:
 
 - `trained_linear_model`
 - `trained_mlp_model`
+- `trained_graph_dispatch_model`
+- `trained_end_to_end_macro_ppo`
+
+Integrated non-learning policy names now include:
+
+- `prioritized_sipp_coordinator`
+- `optimal_mapf_coordinator`
+- `random_macro`
 
 ## Documentation
 
@@ -158,6 +203,7 @@ Supported trained policy names are:
 - [Interaction-aware execution](docs/interaction_aware_execution.md)
 - [Experiments](docs/experiments.md)
 - [Benchmarks](docs/benchmarks.md)
+- [Integrated coordination](docs/integrated_coordination.md)
 - [GNN preparation layer](docs/gnn_preparation.md)
 - [Observation datasets](docs/observation_datasets.md)
 - [Offline policy fitting](docs/offline_policy_fitting.md)

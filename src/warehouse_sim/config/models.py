@@ -108,19 +108,51 @@ class PolicyModelConfig:
 
 
 @dataclass(frozen=True)
+class CoordinationConfig:
+    """Declarative configuration for integrated coordination mode."""
+
+    control_dt: float = 0.25
+    replan_period: float = 1.0
+    robot_radius: float = 0.2
+    collision_clearance: float = 0.05
+    k_shortest_paths: int = 3
+    max_route_options_per_pair: int = 3
+
+    def __post_init__(self) -> None:
+        if self.control_dt <= 0:
+            raise ConfigValidationError("coordination.control_dt must be > 0.")
+        if self.replan_period <= 0:
+            raise ConfigValidationError("coordination.replan_period must be > 0.")
+        if self.robot_radius <= 0:
+            raise ConfigValidationError("coordination.robot_radius must be > 0.")
+        if self.collision_clearance < 0:
+            raise ConfigValidationError("coordination.collision_clearance must be >= 0.")
+        if self.k_shortest_paths <= 0:
+            raise ConfigValidationError("coordination.k_shortest_paths must be > 0.")
+        if self.max_route_options_per_pair <= 0:
+            raise ConfigValidationError("coordination.max_route_options_per_pair must be > 0.")
+
+
+@dataclass(frozen=True)
 class SimulationRunConfig:
     """Declarative simulation-run settings."""
 
     policy: str = "fifo"
     horizon_seconds: float | None = None
     continue_until_all_tasks_complete: bool = True
+    coordination_mode: str = "dispatch"
     execution_model: str = "idealized"
 
     def __post_init__(self) -> None:
         supported_models = {"idealized", "reserved_edges", "reserved_nodes"}
+        supported_coordination_modes = {"dispatch", "integrated"}
         if self.execution_model not in supported_models:
             raise ConfigValidationError(
                 "simulation.execution_model must be one of: idealized, reserved_edges, reserved_nodes"
+            )
+        if self.coordination_mode not in supported_coordination_modes:
+            raise ConfigValidationError(
+                "simulation.coordination_mode must be one of: dispatch, integrated"
             )
 
 
@@ -145,10 +177,36 @@ class ExperimentConfig:
     simulation: SimulationRunConfig
     reporting: ReportingConfig
     policy_model: PolicyModelConfig | None = None
+    coordination: CoordinationConfig | None = None
 
     def __post_init__(self) -> None:
         if not self.name:
             raise ConfigValidationError("name must be non-empty.")
+        dispatch_policies = {
+            "fifo",
+            "random",
+            "nearest_robot_task",
+            "nearest_task_for_idle_robot",
+            "congestion_aware_nearest_robot_task",
+            "linear_assignment_model",
+            "trained_linear_model",
+            "trained_mlp_model",
+            "trained_graph_dispatch_model",
+        }
+        integrated_policies = {
+            "prioritized_sipp_coordinator",
+            "optimal_mapf_coordinator",
+            "trained_end_to_end_macro_ppo",
+            "random_macro",
+        }
+        if self.simulation.coordination_mode == "dispatch" and self.simulation.policy not in dispatch_policies:
+            raise ConfigValidationError(
+                f"simulation.policy {self.simulation.policy!r} is not supported in dispatch mode."
+            )
+        if self.simulation.coordination_mode == "integrated" and self.simulation.policy not in integrated_policies:
+            raise ConfigValidationError(
+                f"simulation.policy {self.simulation.policy!r} is not supported in integrated mode."
+            )
         if self.simulation.policy == "linear_assignment_model" and self.policy_model is None:
             raise ConfigValidationError(
                 "policy_model must be provided when simulation.policy is linear_assignment_model."
@@ -157,8 +215,22 @@ class ExperimentConfig:
             raise ConfigValidationError(
                 "policy_model.weights must be provided when simulation.policy is linear_assignment_model."
             )
-        if self.simulation.policy in {"trained_linear_model", "trained_mlp_model"}:
+        if self.simulation.policy in {
+            "trained_linear_model",
+            "trained_mlp_model",
+            "trained_graph_dispatch_model",
+            "trained_end_to_end_macro_ppo",
+        }:
             if self.policy_model is None or self.policy_model.artifact_path is None:
                 raise ConfigValidationError(
                     "policy_model.artifact_path must be provided for trained model policies."
+                )
+        if self.simulation.coordination_mode == "integrated":
+            if self.coordination is None:
+                raise ConfigValidationError(
+                    "coordination config must be provided when simulation.coordination_mode is integrated."
+                )
+            if self.simulation.execution_model != "idealized":
+                raise ConfigValidationError(
+                    "simulation.execution_model must remain idealized in integrated mode; continuous execution is implied."
                 )

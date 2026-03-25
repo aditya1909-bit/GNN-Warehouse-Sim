@@ -22,6 +22,7 @@ from warehouse_sim.policies.scoring import (
     ArtifactScoringDispatchPolicy,
     CandidateAssignmentObservation,
     CandidateScoringError,
+    GraphDispatchArtifactPolicy,
     LinearScoringDispatchPolicy,
     build_candidate_assignment_observations,
 )
@@ -39,6 +40,7 @@ __all__ = [
     "FIFODispatchPolicy",
     "LinearScoringDispatchPolicy",
     "GlobalObservation",
+    "GraphDispatchArtifactPolicy",
     "NearestRobotTaskPolicy",
     "NearestTaskForIdleRobotPolicy",
     "RandomDispatchPolicy",

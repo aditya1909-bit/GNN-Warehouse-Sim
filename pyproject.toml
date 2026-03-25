@@ -9,8 +9,11 @@ description = "Research-grade warehouse simulation scaffold with validated deman
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+  "gymnasium>=1.2",
   "matplotlib>=3.8",
   "numpy>=1.26",
+  "torch>=2.11",
+  "torch_geometric>=2.7",
 ]
 
 [project.optional-dependencies]

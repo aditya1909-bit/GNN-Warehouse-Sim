@@ -52,9 +52,15 @@ def test_build_candidate_assignment_observations_exposes_supported_features() ->
     assert candidates[0].feature("travel_to_pickup_time") == 1.0
     assert candidates[0].feature("task_age") == 2.0
     assert candidates[0].feature("active_reserved_edge_count") == 1.0
+    assert candidates[0].feature("pickup_node_inbound_degree") == 2.0
+    assert candidates[0].feature("dropoff_node_outbound_degree") == 1.0
+    assert candidates[0].feature("travel_to_pickup_mean_transit_count") == 0.0
+    assert candidates[0].feature("pickup_to_dropoff_max_transit_count") == 4.0
+    assert candidates[0].feature("pickup_to_dropoff_mean_arc_traversal_count") == 3.5
     assert candidates[0].feature("estimated_pickup_congestion_delay") == 1.0
     assert candidates[0].feature("estimated_pickup_blocked_segments") == 1.0
     assert "estimated_dropoff_congestion_delay" in SUPPORTED_CANDIDATE_FEATURES
+    assert "travel_to_pickup_mean_arc_traversal_count" in SUPPORTED_CANDIDATE_FEATURES
     assert "average_robot_time_until_available" in SUPPORTED_CANDIDATE_FEATURES
 
 

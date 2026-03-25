@@ -39,3 +39,20 @@ trained_linear_model = "artifacts/linear.json"
 
     assert config.policy_artifacts["trained_linear_model"] == Path("artifacts/linear.json")
     assert config.seeds == (7, 11)
+
+
+def test_load_integrated_benchmark_manifest() -> None:
+    config_path = Path(__file__).resolve().parents[2] / "configs" / "integrated_coordination_benchmark.toml"
+    config = load_benchmark_config(config_path)
+
+    assert config.name == "integrated_coordination_benchmark"
+    assert "prioritized_sipp_coordinator" in config.policies
+    assert "random_macro" in config.policies
+
+
+def test_load_integrated_optimal_mapf_benchmark_manifest() -> None:
+    config_path = Path(__file__).resolve().parents[2] / "configs" / "integrated_optimal_mapf_benchmark.toml"
+    config = load_benchmark_config(config_path)
+
+    assert config.name == "integrated_optimal_mapf_benchmark"
+    assert "optimal_mapf_coordinator" in config.policies

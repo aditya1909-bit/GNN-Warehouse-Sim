@@ -2,7 +2,7 @@
 
 ## Implemented Now
 
-The repository now has ten implemented layers:
+The repository now has twelve implemented layers:
 
 - Synthetic task arrivals from a non-homogeneous Poisson process
 - Explicit warehouse graphs, zones, tasks, queues, and robot state
@@ -14,6 +14,8 @@ The repository now has ten implemented layers:
 - Observation-driven linear scoring policy
 - Interaction-aware execution with explicit routes, simplified reservations, and congestion-aware metrics
 - Offline fitting and evaluation for candidate-scoring dispatch models
+- Graph-conditioned dispatch learning with optional PPO fine-tuning
+- Integrated continuous-time coordination with prioritized SIPP-style planning, exact current-epoch MAPF routing, and macro PPO
 
 Concrete additions in the latest stage:
 
@@ -29,20 +31,25 @@ Concrete additions in the latest stage:
 - fitted linear scorer artifact serialization and live loading
 - one modest nonlinear learned baseline over candidate features
 - repeated-seed aggregate benchmark reporting
+- dispatch-indexed node and arc observation export
+- PyG message-passing graph dispatch scorer
+- masked PPO fine-tuning at dispatch-event boundaries
+- graph-dispatch artifact loading inside live simulation runs
+- integrated coordination mode with continuous graph execution
+- prioritized SIPP-style planner outputs and collision-event reporting
+- exact current-epoch MAPF routing baseline for integrated mode
+- end-to-end macro PPO artifact training and loading
 
 ## Not Implemented Yet
 
 The repository still does not implement a full warehouse simulator.
 
-- No full MAPF or optimal joint path planning
-- No continuous collision geometry
 - No battery or charging behavior
-- No true graph-neural dispatch model
-- No RL training pipeline
-- No end-to-end learned coordination system
+- No global warehouse-level optimal MAPF guarantees across dynamic task allocation and future releases
+- No free-space off-graph motion physics
 
 ## Current Framing
 
-This codebase is now strong enough for experiments on dispatch decisions under simplified interaction-aware execution, plus honest offline fitting and evaluation of candidate-scoring models on exported dispatch observations.
+This codebase is now strong enough for both dispatch-centric coordination experiments and an integrated continuous-time coordination stack with centralized planning and experimental end-to-end macro RL.
 
-It should still be described as a modular research scaffold, not as a finished warehouse-operations simulator.
+It should still be described as a modular research scaffold, not as a finished warehouse-operations simulator. Stronger learned end-to-end coordination claims remain benchmark-gated.

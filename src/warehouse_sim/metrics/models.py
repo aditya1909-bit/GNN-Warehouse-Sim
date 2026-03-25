@@ -39,3 +39,6 @@ class SimulationMetrics:
     throughput_per_hour: float
     makespan: float
     robot_metrics: tuple[RobotMetrics, ...]
+    safety_violations_total: int = 0
+    replans_total: int = 0
+    planner_failures_total: int = 0

@@ -1,0 +1,12 @@
+[benchmark]
+name = "integrated_optimal_mapf_benchmark"
+scenario_configs = [
+  "scenarios/integrated_narrow_bottleneck.toml",
+  "scenarios/integrated_high_fleet_density.toml",
+]
+policies = [
+  "prioritized_sipp_coordinator",
+  "optimal_mapf_coordinator",
+]
+output_dir = "outputs/benchmarks/integrated_optimal_mapf_benchmark"
+write_plots = false

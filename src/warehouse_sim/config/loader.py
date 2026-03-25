@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from warehouse_sim.config.models import (
+    CoordinationConfig,
     ConfigValidationError,
     DemandConfig,
     ExperimentConfig,
@@ -31,6 +32,7 @@ def load_experiment_config(path: Path) -> ExperimentConfig:
         robots = raw["robots"]
         tasks = raw.get("tasks", {})
         simulation = raw.get("simulation", {})
+        coordination = raw.get("coordination")
         reporting = raw.get("reporting", {})
         policy_model = raw.get("policy_model")
     except KeyError as exc:
@@ -84,12 +86,23 @@ def load_experiment_config(path: Path) -> ExperimentConfig:
             continue_until_all_tasks_complete=bool(
                 simulation.get("continue_until_all_tasks_complete", True)
             ),
+            coordination_mode=str(simulation.get("coordination_mode", "dispatch")),
             execution_model=str(simulation.get("execution_model", "idealized")),
         ),
         reporting=ReportingConfig(
             output_dir=Path(str(reporting.get("output_dir", "outputs/default_experiment"))),
             write_plots=bool(reporting.get("write_plots", False)),
             write_observation_dataset=bool(reporting.get("write_observation_dataset", False)),
+        ),
+        coordination=None
+        if coordination is None
+        else CoordinationConfig(
+            control_dt=float(coordination.get("control_dt", 0.25)),
+            replan_period=float(coordination.get("replan_period", 1.0)),
+            robot_radius=float(coordination.get("robot_radius", 0.2)),
+            collision_clearance=float(coordination.get("collision_clearance", 0.05)),
+            k_shortest_paths=int(coordination.get("k_shortest_paths", 3)),
+            max_route_options_per_pair=int(coordination.get("max_route_options_per_pair", 3)),
         ),
         policy_model=None
         if policy_model is None

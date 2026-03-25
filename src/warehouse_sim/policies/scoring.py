@@ -6,10 +6,13 @@ from dataclasses import dataclass
 from math import isfinite
 
 import numpy as np
+import torch
 
 from warehouse_sim.candidate_features import SUPPORTED_CANDIDATE_FEATURES
 from warehouse_sim.graph import WarehouseEdge
 from warehouse_sim.learning.artifacts import DispatchModelArtifact
+from warehouse_sim.learning.graph_data import build_graph_dispatch_example_from_context
+from warehouse_sim.learning.graph_model import GraphDispatchScorer
 from warehouse_sim.policies.base import DispatchDecision, DispatchPolicy
 from warehouse_sim.policies.observation import (
     CongestionObservation,
@@ -116,6 +119,54 @@ class ArtifactScoringDispatchPolicy(DispatchPolicy):
         )
 
 
+class GraphDispatchArtifactPolicy(DispatchPolicy):
+    """Dispatch policy backed by a trained PyG graph-conditioned scorer."""
+
+    name = "trained_graph_dispatch_model"
+
+    def __init__(
+        self,
+        *,
+        model: GraphDispatchScorer,
+        candidate_feature_names: tuple[str, ...],
+        node_feature_names: tuple[str, ...],
+        edge_feature_names: tuple[str, ...],
+    ) -> None:
+        self._model = model
+        self._candidate_feature_names = candidate_feature_names
+        self._node_feature_names = node_feature_names
+        self._edge_feature_names = edge_feature_names
+
+    def select_assignment_from_context(self, context: DispatchContext) -> DispatchDecision | None:
+        candidates = build_candidate_assignment_observations(context)
+        if not candidates:
+            return None
+
+        example = build_graph_dispatch_example_from_context(
+            context,
+            dispatch_index=0,
+            candidate_feature_names=self._candidate_feature_names,
+            node_feature_names=self._node_feature_names,
+            edge_feature_names=self._edge_feature_names,
+            dispatch_group_id="live::dispatch",
+        )
+        with torch.no_grad():
+            logits, _ = self._model(
+                node_features=torch.tensor(example.node_features, dtype=torch.float32),
+                edge_index=torch.tensor(example.edge_index, dtype=torch.long),
+                edge_features=torch.tensor(example.edge_features, dtype=torch.float32),
+                candidate_features=torch.tensor(example.candidate_features, dtype=torch.float32),
+            )
+        scores = logits.detach().cpu().numpy()
+        best_candidate = _select_best_candidate(candidates, scores)
+        return DispatchDecision(robot_id=best_candidate.robot_id, task_id=best_candidate.task_id)
+
+    def select_assignment(self, idle_robots, ready_tasks, environment):  # type: ignore[override]
+        raise CandidateScoringError(
+            "GraphDispatchArtifactPolicy requires dispatch contexts and should not use the legacy selection path."
+        )
+
+
 def build_candidate_assignment_observations(
     context: DispatchContext,
 ) -> tuple[CandidateAssignmentObservation, ...]:
@@ -123,6 +174,11 @@ def build_candidate_assignment_observations(
 
     robot_by_id = {robot.robot_id: robot for robot in context.robot_observations}
     task_by_id = {task.task_id: task for task in context.task_observations if task.is_ready}
+    node_feature_by_id = {node.node_id: node for node in context.graph_features.nodes}
+    arc_feature_by_edge = {
+        (arc.source_id, arc.target_id): arc
+        for arc in context.graph_features.arcs
+    }
     candidates: list[CandidateAssignmentObservation] = []
 
     for robot_state in context.idle_robots:
@@ -187,6 +243,12 @@ def build_candidate_assignment_observations(
                         task_observation=task_observation,
                         travel_to_pickup_time=travel_to_pickup_time,
                         travel_to_pickup_distance=context.environment.path_distance(pickup_path),
+                        pickup_path=pickup_path,
+                        pickup_edges=pickup_edges,
+                        dropoff_path=dropoff_path,
+                        dropoff_edges=dropoff_edges,
+                        node_feature_by_id=node_feature_by_id,
+                        arc_feature_by_edge=arc_feature_by_edge,
                         estimated_pickup_delay=estimated_pickup_delay,
                         estimated_dropoff_delay=estimated_dropoff_delay,
                         estimated_pickup_blocked_segments=estimated_pickup_blocked_segments,
@@ -213,16 +275,48 @@ def _candidate_feature_values(
     task_observation: TaskObservation,
     travel_to_pickup_time: float,
     travel_to_pickup_distance: float,
+    pickup_path: tuple[str, ...],
+    pickup_edges: tuple[WarehouseEdge, ...],
+    dropoff_path: tuple[str, ...],
+    dropoff_edges: tuple[WarehouseEdge, ...],
+    node_feature_by_id: dict[str, object],
+    arc_feature_by_edge: dict[tuple[str, str], object],
     estimated_pickup_delay: float,
     estimated_dropoff_delay: float,
     estimated_pickup_blocked_segments: int,
     estimated_dropoff_blocked_segments: int,
 ) -> dict[str, float]:
+    pickup_node_features = node_feature_by_id[task_observation.pickup_node]
+    dropoff_node_features = node_feature_by_id[task_observation.dropoff_node]
+    pickup_path_features = _path_structure_features(
+        path_nodes=pickup_path,
+        path_edges=pickup_edges,
+        node_feature_by_id=node_feature_by_id,
+        arc_feature_by_edge=arc_feature_by_edge,
+    )
+    dropoff_path_features = _path_structure_features(
+        path_nodes=dropoff_path,
+        path_edges=dropoff_edges,
+        node_feature_by_id=node_feature_by_id,
+        arc_feature_by_edge=arc_feature_by_edge,
+    )
     return {
         "travel_to_pickup_time": travel_to_pickup_time,
         "travel_to_pickup_distance": travel_to_pickup_distance,
         "pickup_to_dropoff_time": task_observation.pickup_to_dropoff_travel_time,
         "pickup_to_dropoff_distance": task_observation.pickup_to_dropoff_distance,
+        "pickup_node_inbound_degree": float(pickup_node_features.inbound_degree),
+        "pickup_node_outbound_degree": float(pickup_node_features.outbound_degree),
+        "dropoff_node_inbound_degree": float(dropoff_node_features.inbound_degree),
+        "dropoff_node_outbound_degree": float(dropoff_node_features.outbound_degree),
+        "travel_to_pickup_mean_transit_count": pickup_path_features["mean_transit_count"],
+        "travel_to_pickup_max_transit_count": pickup_path_features["max_transit_count"],
+        "travel_to_pickup_mean_arc_traversal_count": pickup_path_features["mean_arc_traversal_count"],
+        "travel_to_pickup_max_arc_traversal_count": pickup_path_features["max_arc_traversal_count"],
+        "pickup_to_dropoff_mean_transit_count": dropoff_path_features["mean_transit_count"],
+        "pickup_to_dropoff_max_transit_count": dropoff_path_features["max_transit_count"],
+        "pickup_to_dropoff_mean_arc_traversal_count": dropoff_path_features["mean_arc_traversal_count"],
+        "pickup_to_dropoff_max_arc_traversal_count": dropoff_path_features["max_arc_traversal_count"],
         "task_age": task_observation.age,
         "task_priority": float(task_observation.priority),
         "task_service_time_estimate": task_observation.service_time_estimate,
@@ -245,6 +339,34 @@ def _candidate_feature_values(
         "estimated_dropoff_congestion_delay": estimated_dropoff_delay,
         "estimated_pickup_blocked_segments": float(estimated_pickup_blocked_segments),
         "estimated_dropoff_blocked_segments": float(estimated_dropoff_blocked_segments),
+    }
+
+
+def _path_structure_features(
+    *,
+    path_nodes: tuple[str, ...],
+    path_edges: tuple[WarehouseEdge, ...],
+    node_feature_by_id: dict[str, object],
+    arc_feature_by_edge: dict[tuple[str, str], object],
+) -> dict[str, float]:
+    interior_nodes = path_nodes[1:-1]
+    node_transit_counts = [
+        float(node_feature_by_id[node_id].shortest_path_transit_count)
+        for node_id in interior_nodes
+    ]
+    arc_traversal_counts = [
+        float(arc_feature_by_edge[(edge.source, edge.target)].shortest_path_traversal_count)
+        for edge in path_edges
+    ]
+    return {
+        "mean_transit_count": (
+            sum(node_transit_counts) / len(node_transit_counts) if node_transit_counts else 0.0
+        ),
+        "max_transit_count": max(node_transit_counts, default=0.0),
+        "mean_arc_traversal_count": (
+            sum(arc_traversal_counts) / len(arc_traversal_counts) if arc_traversal_counts else 0.0
+        ),
+        "max_arc_traversal_count": max(arc_traversal_counts, default=0.0),
     }
 
 

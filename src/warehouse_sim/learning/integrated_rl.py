@@ -1,0 +1,688 @@
+"""End-to-end macro PPO training and artifact loading for integrated coordination."""
+
+from __future__ import annotations
+
+import csv
+import json
+from dataclasses import dataclass, replace
+from pathlib import Path
+
+import torch
+from torch import nn, optim
+from torch_geometric.nn import GATv2Conv
+
+from warehouse_sim.config import ExperimentConfig, IntegratedRLTrainingConfig, load_experiment_config
+from warehouse_sim.integrated.engine import (
+    _ActivePlan,
+    _finalize_completed_plans,
+    _next_integrated_event_time,
+    _record_queue_snapshot,
+    _release_ready_tasks,
+    build_integrated_observation,
+)
+from warehouse_sim.integrated.models import CollisionEventRecord, IntegratedObservation, IntegratedPolicyStep, MacroDecisionRecord, PlannerPlanRecord
+from warehouse_sim.integrated.planner import ContinuousOccupancyTable, detect_collision_events, plan_route_candidate
+from warehouse_sim.integrated.policies import IntegratedPolicyOutput, PrioritizedSIPPCoordinatorPolicy
+from warehouse_sim.metrics.collector import compute_simulation_metrics
+from warehouse_sim.simulation.runner import build_experiment_inputs, run_experiment_from_config
+from warehouse_sim.simulation.models import SimulationResult
+
+
+@dataclass(frozen=True)
+class EndToEndMacroArtifact:
+    """Serializable artifact for integrated end-to-end macro PPO."""
+
+    artifact_version: int
+    model_type: str
+    parameters: dict[str, object]
+    metadata: dict[str, object]
+
+
+def write_end_to_end_macro_artifact(artifact: EndToEndMacroArtifact, path: Path) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "artifact_version": artifact.artifact_version,
+                "model_type": artifact.model_type,
+                "parameters": artifact.parameters,
+                "metadata": artifact.metadata,
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
+def load_end_to_end_macro_artifact(path: Path) -> EndToEndMacroArtifact:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    return EndToEndMacroArtifact(
+        artifact_version=int(payload["artifact_version"]),
+        model_type=str(payload["model_type"]),
+        parameters=dict(payload["parameters"]),
+        metadata=dict(payload.get("metadata", {})),
+    )
+
+
+class EndToEndMacroPolicyNetwork(nn.Module):
+    """Centralized macro controller over integrated observations."""
+
+    def __init__(
+        self,
+        *,
+        node_dim: int,
+        edge_dim: int,
+        robot_dim: int,
+        task_dim: int,
+        macro_dim: int = 7,
+        hidden_dim: int = 64,
+    ) -> None:
+        super().__init__()
+        self.node_encoder = nn.Sequential(nn.Linear(node_dim, hidden_dim), nn.ReLU(), nn.Linear(hidden_dim, hidden_dim))
+        self.edge_encoder = nn.Sequential(nn.Linear(edge_dim, hidden_dim), nn.ReLU(), nn.Linear(hidden_dim, hidden_dim))
+        self.robot_encoder = nn.Sequential(nn.Linear(robot_dim, hidden_dim), nn.ReLU(), nn.Linear(hidden_dim, hidden_dim))
+        self.task_encoder = nn.Sequential(nn.Linear(max(task_dim, 1), hidden_dim), nn.ReLU(), nn.Linear(hidden_dim, hidden_dim))
+        self.macro_encoder = nn.Sequential(nn.Linear(macro_dim, hidden_dim), nn.ReLU(), nn.Linear(hidden_dim, hidden_dim))
+        self.conv = GATv2Conv(hidden_dim, hidden_dim, heads=1, concat=False, edge_dim=hidden_dim, add_self_loops=False)
+        self.candidate_head = nn.Sequential(
+            nn.Linear(hidden_dim * 3, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, 1),
+        )
+        self.value_head = nn.Sequential(
+            nn.Linear(hidden_dim * 3, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, 1),
+        )
+
+    def encode_graph(self, observation: IntegratedObservation) -> torch.Tensor:
+        node_features = torch.tensor(observation.node_features, dtype=torch.float32)
+        edge_features = torch.tensor(observation.edge_features, dtype=torch.float32)
+        edge_index = torch.tensor(observation.edge_index, dtype=torch.long).T.contiguous()
+        x = self.node_encoder(node_features)
+        edge_attr = self.edge_encoder(edge_features)
+        x = torch.relu(self.conv(x, edge_index, edge_attr))
+        return x.mean(dim=0)
+
+    def act(self, observation: IntegratedObservation, greedy: bool = False) -> IntegratedPolicyOutput:
+        graph_embedding = self.encode_graph(observation)
+        used_tasks: set[str] = set()
+        chosen_indices: list[int] = []
+        log_prob_total = torch.tensor(0.0)
+        for robot_index, candidates in enumerate(observation.macro_candidates):
+            robot_embedding = self.robot_encoder(
+                torch.tensor(observation.robot_features[robot_index], dtype=torch.float32)
+            )
+            candidate_matrix = torch.stack(
+                [self.macro_encoder(_macro_feature_tensor(observation, candidate)) for candidate in candidates]
+            )
+            repeated_graph = graph_embedding.unsqueeze(0).expand(candidate_matrix.shape[0], -1)
+            repeated_robot = robot_embedding.unsqueeze(0).expand(candidate_matrix.shape[0], -1)
+            logits = self.candidate_head(torch.cat([repeated_graph, repeated_robot, candidate_matrix], dim=-1)).squeeze(-1)
+            mask = torch.tensor(
+                [candidate.task_id is None or candidate.task_id not in used_tasks for candidate in candidates],
+                dtype=torch.bool,
+            )
+            masked_logits = logits.masked_fill(~mask, float("-inf"))
+            distribution = torch.distributions.Categorical(logits=masked_logits)
+            index = int(torch.argmax(masked_logits).item()) if greedy else int(distribution.sample().item())
+            chosen_indices.append(index)
+            log_prob_total = log_prob_total + distribution.log_prob(torch.tensor(index))
+            task_id = candidates[index].task_id
+            if task_id is not None:
+                used_tasks.add(task_id)
+        value = self.value(observation, graph_embedding)
+        return IntegratedPolicyOutput(
+            chosen_indices=tuple(chosen_indices),
+            log_prob=float(log_prob_total.item()),
+            value=float(value.item()),
+        )
+
+    def evaluate(self, observation: IntegratedObservation, chosen_indices: tuple[int, ...]) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        graph_embedding = self.encode_graph(observation)
+        used_tasks: set[str] = set()
+        log_prob_total = torch.tensor(0.0)
+        entropy_total = torch.tensor(0.0)
+        for robot_index, candidates in enumerate(observation.macro_candidates):
+            robot_embedding = self.robot_encoder(
+                torch.tensor(observation.robot_features[robot_index], dtype=torch.float32)
+            )
+            candidate_matrix = torch.stack(
+                [self.macro_encoder(_macro_feature_tensor(observation, candidate)) for candidate in candidates]
+            )
+            repeated_graph = graph_embedding.unsqueeze(0).expand(candidate_matrix.shape[0], -1)
+            repeated_robot = robot_embedding.unsqueeze(0).expand(candidate_matrix.shape[0], -1)
+            logits = self.candidate_head(torch.cat([repeated_graph, repeated_robot, candidate_matrix], dim=-1)).squeeze(-1)
+            mask = torch.tensor(
+                [candidate.task_id is None or candidate.task_id not in used_tasks for candidate in candidates],
+                dtype=torch.bool,
+            )
+            masked_logits = logits.masked_fill(~mask, float("-inf"))
+            distribution = torch.distributions.Categorical(logits=masked_logits)
+            index = chosen_indices[robot_index]
+            log_prob_total = log_prob_total + distribution.log_prob(torch.tensor(index))
+            entropy_total = entropy_total + distribution.entropy()
+            task_id = candidates[index].task_id
+            if task_id is not None:
+                used_tasks.add(task_id)
+        value = self.value(observation, graph_embedding)
+        return log_prob_total, value, entropy_total
+
+    def value(self, observation: IntegratedObservation, graph_embedding: torch.Tensor | None = None) -> torch.Tensor:
+        if graph_embedding is None:
+            graph_embedding = self.encode_graph(observation)
+        robot_tensor = torch.tensor(observation.robot_features, dtype=torch.float32)
+        robot_embedding = self.robot_encoder(robot_tensor).mean(dim=0)
+        if observation.task_features:
+            task_embedding = self.task_encoder(torch.tensor(observation.task_features, dtype=torch.float32)).mean(dim=0)
+        else:
+            task_embedding = torch.zeros_like(graph_embedding)
+        return self.value_head(torch.cat([graph_embedding, robot_embedding, task_embedding], dim=-1)).squeeze(-1)
+
+
+@dataclass(frozen=True)
+class LoadedEndToEndMacroModel:
+    artifact: EndToEndMacroArtifact
+    model: EndToEndMacroPolicyNetwork
+
+
+def load_end_to_end_macro_model(path: Path, device: torch.device | str = "cpu") -> LoadedEndToEndMacroModel:
+    artifact = load_end_to_end_macro_artifact(path)
+    if artifact.model_type != "end_to_end_macro_ppo":
+        raise ValueError(f"Expected end_to_end_macro_ppo artifact, got {artifact.model_type}")
+    parameters = artifact.parameters
+    model = EndToEndMacroPolicyNetwork(
+        node_dim=int(parameters["node_dim"]),
+        edge_dim=int(parameters["edge_dim"]),
+        robot_dim=int(parameters["robot_dim"]),
+        task_dim=int(parameters["task_dim"]),
+        macro_dim=int(parameters.get("macro_dim", 7)),
+        hidden_dim=int(parameters.get("hidden_dim", 64)),
+    )
+    state_path = path.parent / str(parameters["state_dict_path"])
+    model.load_state_dict(torch.load(state_path, map_location=device))
+    model.eval()
+    return LoadedEndToEndMacroModel(artifact=artifact, model=model)
+
+
+class IntegratedCoordinationRLEnv:
+    """Replanning-boundary RL environment for integrated coordination."""
+
+    def __init__(self, config: ExperimentConfig, seed: int) -> None:
+        seeded_config = replace(config, demand=replace(config.demand, seed=seed))
+        self._experiment_config = seeded_config
+        self._environment, self._tasks, self._robots, self._simulation_config = build_experiment_inputs(seeded_config)
+        self._robot_states = ()
+        self._occupancy = None
+        self._released_task_ids: set[str] = set()
+        self._claimed_task_ids: set[str] = set()
+        self._completed_task_ids: set[str] = set()
+        self._active_plans = {}
+        self._current_time = 0.0
+        self._next_replan_time = 0.0
+        self._macro_decisions: list[MacroDecisionRecord] = []
+        self._planner_plans: list[PlannerPlanRecord] = []
+        self._collision_events: list[CollisionEventRecord] = []
+        self._queue_snapshots = []
+        self._executions = []
+
+    def reset(self) -> IntegratedObservation:
+        self._environment, self._tasks, self._robots, self._simulation_config = build_experiment_inputs(self._experiment_config)
+        from warehouse_sim.agents import RobotState
+
+        self._robot_states = tuple(RobotState.from_spec(robot) for robot in self._robots)
+        self._occupancy = ContinuousOccupancyTable(
+            robot_radius=self._simulation_config.coordination.robot_radius,  # type: ignore[union-attr]
+            collision_clearance=self._simulation_config.coordination.collision_clearance,  # type: ignore[union-attr]
+        )
+        self._released_task_ids = set()
+        self._claimed_task_ids = set()
+        self._completed_task_ids = set()
+        self._active_plans = {}
+        self._current_time = 0.0
+        self._next_replan_time = 0.0
+        self._macro_decisions = []
+        self._planner_plans = []
+        self._collision_events = []
+        self._queue_snapshots = []
+        self._executions = []
+        _record_queue_snapshot(self._queue_snapshots, 0.0, self._tasks, self._released_task_ids, self._completed_task_ids, self._active_plans)
+        _release_ready_tasks(self._tasks, 0.0, self._released_task_ids)
+        return self._observation()
+
+    def step(self, chosen_indices: tuple[int, ...], reward_config) -> tuple[IntegratedObservation | None, float, bool, dict[str, float]]:
+        assert self._occupancy is not None
+        before_completed = len(self._completed_task_ids)
+        before_wait = sum(execution.waiting_time for execution in self._executions)
+        before_delay = sum(execution.congestion_delay_time for execution in self._executions)
+        before_safety = len(self._collision_events)
+        decision_index = len(self._macro_decisions)
+        plan_index = len(self._planner_plans)
+        observation = self._observation()
+        used_tasks: set[str] = set()
+        for robot_index, robot in enumerate(self._robot_states):
+            candidates = observation.macro_candidates[robot_index]
+            chosen_index = chosen_indices[robot_index] if robot_index < len(chosen_indices) else 0
+            if chosen_index < 0 or chosen_index >= len(candidates):
+                chosen_index = 0
+            candidate = candidates[chosen_index]
+            if candidate.task_id is not None and candidate.task_id in used_tasks:
+                candidate = candidates[0]
+                chosen_index = 0
+            self._macro_decisions.append(
+                MacroDecisionRecord(
+                    decision_index=decision_index,
+                    decision_time=self._current_time,
+                    robot_id=robot.spec.robot_id,
+                    macro_type=candidate.macro_type,
+                    task_id=candidate.task_id,
+                    route_nodes=candidate.route_nodes,
+                    route_edges=tuple(f"{source}->{target}" for source, target in candidate.route_edges),
+                    estimated_completion_time=candidate.estimated_completion_time,
+                    selected_by_policy="trained_end_to_end_macro_ppo",
+                )
+            )
+            decision_index += 1
+            if candidate.macro_type != "task_route" or candidate.task_id is None or robot.spec.robot_id in self._active_plans:
+                continue
+            task = next(task for task in self._tasks if task.task_id == candidate.task_id)
+            planned = plan_route_candidate(
+                self._environment,
+                robot_id=robot.spec.robot_id,
+                start_time=self._current_time,
+                speed_multiplier=robot.spec.speed_multiplier,
+                occupancy_table=self._occupancy,
+                candidate=candidate,
+                service_time=task.service_time_estimate,
+            )
+            if planned is None or planned.pickup_arrival_time is None:
+                self._planner_plans.append(
+                    PlannerPlanRecord(
+                        plan_index=plan_index,
+                        plan_time=self._current_time,
+                        robot_id=robot.spec.robot_id,
+                        task_id=task.task_id,
+                        priority_rank=robot_index,
+                        path_nodes=candidate.route_nodes,
+                        path_edges=tuple(f"{source}->{target}" for source, target in candidate.route_edges),
+                        planned_start_time=self._current_time,
+                        planned_end_time=self._current_time,
+                        planner_name="trained_end_to_end_macro_ppo",
+                        status="failed",
+                    )
+                )
+                plan_index += 1
+                continue
+            self._occupancy.reserve(planned.traversals)
+            for node_id, time in planned.reserved_node_times:
+                self._occupancy.reserve_node_time(node_id=node_id, time=time, robot_id=robot.spec.robot_id)
+            self._claimed_task_ids.add(task.task_id)
+            self._active_plans[robot.spec.robot_id] = _ActivePlan(
+                task=task,
+                assigned_at=self._current_time,
+                pickup_arrival_time=planned.pickup_arrival_time,
+                completion_time=planned.completion_time,
+                traversals=planned.traversals,
+                blocked_events=planned.blocked_events,
+                wait_time=planned.wait_time,
+            )
+            robot.available_time = planned.completion_time
+            self._planner_plans.append(
+                PlannerPlanRecord(
+                    plan_index=plan_index,
+                    plan_time=self._current_time,
+                    robot_id=robot.spec.robot_id,
+                    task_id=task.task_id,
+                    priority_rank=robot_index,
+                    path_nodes=planned.route_nodes,
+                    path_edges=tuple(f"{traversal.source_id}->{traversal.target_id}" for traversal in planned.traversals),
+                    planned_start_time=planned.traversals[0].start_time if planned.traversals else self._current_time,
+                    planned_end_time=planned.completion_time,
+                    planner_name="trained_end_to_end_macro_ppo",
+                    status="planned",
+                )
+            )
+            plan_index += 1
+            used_tasks.add(task.task_id)
+        for event in detect_collision_events(
+            tuple(traversal for plan in self._active_plans.values() for traversal in plan.traversals),
+            robot_radius=self._simulation_config.coordination.robot_radius,  # type: ignore[union-attr]
+            collision_clearance=self._simulation_config.coordination.collision_clearance,  # type: ignore[union-attr]
+        ):
+            self._collision_events.append(
+                CollisionEventRecord(
+                    time=event[0],
+                    robot_id=event[1],
+                    other_robot_id=event[2],
+                    event_type=event[3],
+                    location_id=event[4],
+                )
+            )
+        self._next_replan_time = self._current_time + self._simulation_config.coordination.replan_period  # type: ignore[union-attr]
+
+        next_time = _next_integrated_event_time(
+            current_time=self._current_time,
+            tasks=self._tasks,
+            released_task_ids=self._released_task_ids,
+            robot_states=self._robot_states,
+            next_replan_time=self._next_replan_time,
+            config=self._simulation_config,
+        )
+        if next_time is None:
+            done = True
+            self._finalize_all()
+        else:
+            self._current_time = next_time
+            _release_ready_tasks(self._tasks, self._current_time, self._released_task_ids)
+            _finalize_completed_plans(
+                current_time=self._current_time,
+                robot_states=self._robot_states,
+                active_plans=self._active_plans,
+                executions=self._executions,
+                completed_task_ids=self._completed_task_ids,
+            )
+            _record_queue_snapshot(
+                self._queue_snapshots,
+                self._current_time,
+                self._tasks,
+                self._released_task_ids,
+                self._completed_task_ids,
+                self._active_plans,
+            )
+            done = False
+
+        completed_delta = len(self._completed_task_ids) - before_completed
+        wait_delta = sum(execution.waiting_time for execution in self._executions) - before_wait
+        delay_delta = sum(execution.congestion_delay_time for execution in self._executions) - before_delay
+        safety_delta = len(self._collision_events) - before_safety
+        reward = (
+            reward_config.task_completion * completed_delta
+            + reward_config.waiting_time * wait_delta
+            + reward_config.congestion_delay * delay_delta
+            + reward_config.safety_violation * safety_delta
+        )
+        return (None if done else self._observation()), float(reward), done, {
+            "completed_delta": float(completed_delta),
+            "wait_delta": float(wait_delta),
+            "delay_delta": float(delay_delta),
+            "safety_delta": float(safety_delta),
+        }
+
+    def _observation(self) -> IntegratedObservation:
+        assert self._occupancy is not None
+        return build_integrated_observation(
+            environment=self._environment,
+            robot_states=self._robot_states,
+            tasks=self._tasks,
+            released_task_ids=self._released_task_ids,
+            claimed_task_ids=self._claimed_task_ids,
+            completed_task_ids=self._completed_task_ids,
+            active_plans=self._active_plans,
+            occupancy=self._occupancy,
+            current_time=self._current_time,
+            config=self._simulation_config,
+        )
+
+    def _finalize_all(self) -> None:
+        finished_at = max([self._current_time, *(robot.available_time for robot in self._robot_states)], default=self._current_time)
+        _finalize_completed_plans(
+            current_time=finished_at,
+            robot_states=self._robot_states,
+            active_plans=self._active_plans,
+            executions=self._executions,
+            completed_task_ids=self._completed_task_ids,
+        )
+        self._current_time = finished_at
+
+    def build_result(self) -> SimulationResult:
+        self._finalize_all()
+        result = SimulationResult(
+            policy_name="trained_end_to_end_macro_ppo",
+            started_at=0.0,
+            finished_at=self._current_time,
+            tasks_generated=len(self._tasks),
+            robot_states=self._robot_states,
+            executions=tuple(self._executions),
+            dispatch_traces=(),
+            dispatch_node_observations=(),
+            dispatch_arc_observations=(),
+            unassigned_tasks=tuple(task for task in self._tasks if task.task_id not in self._completed_task_ids),
+            queue_snapshots=tuple(self._queue_snapshots),
+            metrics=None,  # type: ignore[arg-type]
+            robot_trajectories=(),
+            macro_decisions=tuple(self._macro_decisions),
+            collision_events=tuple(self._collision_events),
+            planner_plans=tuple(self._planner_plans),
+        )
+        metrics = compute_simulation_metrics(result)
+        return replace(result, metrics=metrics)
+
+
+def run_integrated_rl_training_from_config(config: IntegratedRLTrainingConfig) -> dict[str, Path]:
+    """Train a PPO macro controller from scratch on integrated scenarios."""
+
+    scenarios = [load_experiment_config(path) for path in config.curriculum.scenario_configs]
+    env = IntegratedCoordinationRLEnv(scenarios[0], config.curriculum.train_seeds[0])
+    sample_observation = env.reset()
+    model = EndToEndMacroPolicyNetwork(
+        node_dim=len(sample_observation.node_features[0]),
+        edge_dim=len(sample_observation.edge_features[0]) if sample_observation.edge_features else 3,
+        robot_dim=len(sample_observation.robot_features[0]),
+        task_dim=len(sample_observation.task_features[0]) if sample_observation.task_features else 5,
+    )
+    optimizer = optim.Adam(model.parameters(), lr=config.ppo.learning_rate)
+    transitions: list[IntegratedPolicyStep] = []
+    training_rows: list[dict[str, object]] = []
+    scenario_index = 0
+    for episode in range(config.ppo.total_episodes):
+        scenario = scenarios[scenario_index % len(scenarios)]
+        seed = config.curriculum.train_seeds[episode % len(config.curriculum.train_seeds)]
+        scenario_index += 1
+        env = IntegratedCoordinationRLEnv(scenario, seed)
+        observation = env.reset()
+        done = False
+        while not done:
+            output = model.act(observation, greedy=False)
+            next_observation, reward, done, info = env.step(output.chosen_indices, config.reward)
+            transitions.append(
+                IntegratedPolicyStep(
+                    observation=observation,
+                    chosen_indices=output.chosen_indices,
+                    old_log_prob=output.log_prob,
+                    reward=reward,
+                    value=output.value or 0.0,
+                    done=done,
+                )
+            )
+            observation = next_observation or observation
+        result = env.build_result()
+        training_rows.append(
+            {
+                "episode": episode,
+                "scenario_name": scenario.name,
+                "seed": seed,
+                "tasks_completed": result.metrics.tasks_completed,
+                "throughput_per_hour": result.metrics.throughput_per_hour,
+                "safety_violations_total": result.metrics.safety_violations_total,
+            }
+        )
+        _ppo_update(model, optimizer, transitions, config)
+        transitions.clear()
+
+    output_dir = config.output_dir
+    output_dir.mkdir(parents=True, exist_ok=True)
+    state_path = output_dir / "end_to_end_macro_ppo.pt"
+    torch.save(model.state_dict(), state_path)
+    validation_rows, gate_payload = _evaluate_integrated_macro_model(model, scenarios, config)
+    artifact = EndToEndMacroArtifact(
+        artifact_version=1,
+        model_type="end_to_end_macro_ppo",
+        parameters={
+            "node_dim": len(sample_observation.node_features[0]),
+            "edge_dim": len(sample_observation.edge_features[0]) if sample_observation.edge_features else 3,
+            "robot_dim": len(sample_observation.robot_features[0]),
+            "task_dim": len(sample_observation.task_features[0]) if sample_observation.task_features else 5,
+            "macro_dim": 7,
+            "hidden_dim": 64,
+            "state_dict_path": state_path.name,
+        },
+        metadata={"benchmark_gate": gate_payload},
+    )
+    artifact_path = write_end_to_end_macro_artifact(artifact, output_dir / "model_artifact.json")
+    checkpoint_path = output_dir / "checkpoint.pt"
+    torch.save({"model_state_dict": model.state_dict(), "optimizer_state_dict": optimizer.state_dict()}, checkpoint_path)
+    training_metrics_path = output_dir / "training_metrics.csv"
+    evaluation_path = output_dir / "evaluation_rollouts.json"
+    gate_path = output_dir / "claim_gate.json"
+    _write_csv(training_metrics_path, training_rows)
+    evaluation_path.write_text(json.dumps(validation_rows, indent=2), encoding="utf-8")
+    gate_path.write_text(json.dumps(gate_payload, indent=2), encoding="utf-8")
+    return {
+        "artifact": artifact_path,
+        "checkpoint": checkpoint_path,
+        "training_metrics": training_metrics_path,
+        "evaluation_rollouts": evaluation_path,
+        "claim_gate": gate_path,
+    }
+
+
+def _ppo_update(
+    model: EndToEndMacroPolicyNetwork,
+    optimizer: optim.Optimizer,
+    transitions: list[IntegratedPolicyStep],
+    config: IntegratedRLTrainingConfig,
+) -> None:
+    if not transitions:
+        return
+    returns = []
+    advantages = []
+    running_return = 0.0
+    running_advantage = 0.0
+    next_value = 0.0
+    for transition in reversed(transitions):
+        running_return = transition.reward + config.ppo.gamma * running_return * (0.0 if transition.done else 1.0)
+        delta = transition.reward + config.ppo.gamma * next_value * (0.0 if transition.done else 1.0) - transition.value
+        running_advantage = delta + config.ppo.gamma * config.ppo.gae_lambda * running_advantage * (0.0 if transition.done else 1.0)
+        returns.append(running_return)
+        advantages.append(running_advantage)
+        next_value = transition.value
+    returns.reverse()
+    advantages.reverse()
+    advantages_tensor = torch.tensor(advantages, dtype=torch.float32)
+    advantages_tensor = (advantages_tensor - advantages_tensor.mean()) / (advantages_tensor.std() + 1e-8)
+    returns_tensor = torch.tensor(returns, dtype=torch.float32)
+    old_log_probs = torch.tensor([transition.old_log_prob for transition in transitions], dtype=torch.float32)
+
+    for _ in range(config.ppo.ppo_epochs):
+        losses = []
+        for index, transition in enumerate(transitions):
+            log_prob, value, entropy = model.evaluate(transition.observation, transition.chosen_indices)
+            ratio = torch.exp(log_prob - old_log_probs[index])
+            unclipped = ratio * advantages_tensor[index]
+            clipped = torch.clamp(ratio, 1.0 - config.ppo.clip_epsilon, 1.0 + config.ppo.clip_epsilon) * advantages_tensor[index]
+            actor_loss = -torch.minimum(unclipped, clipped)
+            value_loss = torch.nn.functional.mse_loss(value, returns_tensor[index])
+            loss = actor_loss + 0.5 * value_loss - 0.01 * entropy
+            losses.append(loss)
+        optimizer.zero_grad()
+        torch.stack(losses).mean().backward()
+        optimizer.step()
+
+
+def _evaluate_integrated_macro_model(
+    model: EndToEndMacroPolicyNetwork,
+    scenarios: list[ExperimentConfig],
+    config: IntegratedRLTrainingConfig,
+) -> tuple[list[dict[str, object]], dict[str, object]]:
+    validation_rows: list[dict[str, object]] = []
+    baseline_rows: list[dict[str, object]] = []
+    for scenario in scenarios:
+        for seed in (config.curriculum.validation_seeds or config.curriculum.train_seeds[:1]):
+            env = IntegratedCoordinationRLEnv(scenario, seed)
+            observation = env.reset()
+            done = False
+            while not done:
+                output = model.act(observation, greedy=True)
+                observation, _reward, done, _info = env.step(output.chosen_indices, config.reward)
+                if observation is None:
+                    break
+            result = env.build_result()
+            validation_rows.append(
+                {
+                    "scenario_name": scenario.name,
+                    "seed": seed,
+                    "policy": "trained_end_to_end_macro_ppo",
+                    "tasks_completed": result.metrics.tasks_completed,
+                    "tasks_generated": result.metrics.tasks_generated,
+                    "throughput_per_hour": result.metrics.throughput_per_hour,
+                    "safety_violations_total": result.metrics.safety_violations_total,
+                }
+            )
+            baseline_config = replace(
+                scenario,
+                simulation=replace(scenario.simulation, coordination_mode="integrated", policy="prioritized_sipp_coordinator", execution_model="idealized"),
+            )
+            baseline_result, _ = run_experiment_from_config(
+                baseline_config,
+                output_dir_override=config.output_dir / "baseline_eval" / scenario.name / f"seed_{seed}",
+                force_write_plots=False,
+                force_write_observation_dataset=False,
+            )
+            baseline_rows.append(
+                {
+                    "scenario_name": scenario.name,
+                    "seed": seed,
+                    "throughput_per_hour": baseline_result.metrics.throughput_per_hour,
+                }
+            )
+    throughput_ratio = (
+        sum(row["throughput_per_hour"] for row in validation_rows) / max(sum(row["throughput_per_hour"] for row in baseline_rows), 1e-6)
+    )
+    task_completion_rate = (
+        sum(row["tasks_completed"] for row in validation_rows) / max(sum(row["tasks_generated"] for row in validation_rows), 1)
+    )
+    safety_violations = sum(row["safety_violations_total"] for row in validation_rows)
+    gate_payload = {
+        "max_safety_violations": config.benchmark_gate.max_safety_violations,
+        "min_task_completion_rate": config.benchmark_gate.min_task_completion_rate,
+        "min_throughput_ratio_vs_baseline": config.benchmark_gate.min_throughput_ratio_vs_baseline,
+        "observed_safety_violations": safety_violations,
+        "observed_task_completion_rate": task_completion_rate,
+        "observed_throughput_ratio_vs_baseline": throughput_ratio,
+        "claim_ready": (
+            safety_violations <= config.benchmark_gate.max_safety_violations
+            and task_completion_rate >= config.benchmark_gate.min_task_completion_rate
+            and throughput_ratio >= config.benchmark_gate.min_throughput_ratio_vs_baseline
+        ),
+    }
+    return validation_rows, gate_payload
+
+
+def _macro_feature_tensor(observation: IntegratedObservation, candidate) -> torch.Tensor:
+    route_time = 0.0
+    if candidate.route_nodes:
+        route_time = max(candidate.estimated_completion_time - observation.current_time, 0.0)
+    macro_type = candidate.macro_type
+    return torch.tensor(
+        [
+            1.0 if macro_type == "continue_current_plan" else 0.0,
+            1.0 if macro_type == "wait" else 0.0,
+            1.0 if macro_type == "task_route" else 0.0,
+            route_time,
+            float(len(candidate.route_nodes)),
+            float(len(candidate.route_edges)),
+            1.0 if candidate.task_id is not None else 0.0,
+        ],
+        dtype=torch.float32,
+    )
+
+
+def _write_csv(path: Path, rows: list[dict[str, object]]) -> None:
+    if not rows:
+        path.write_text("", encoding="utf-8")
+        return
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(rows[0].keys()))
+        writer.writeheader()
+        writer.writerows(rows)

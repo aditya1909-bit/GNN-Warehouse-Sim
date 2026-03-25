@@ -2,7 +2,7 @@
 
 ## Current Scope
 
-The repository now has ten concrete layers:
+The repository now has twelve concrete layers:
 
 - Stage 1: validated stochastic demand/input model
 - Stage 2: explicit warehouse graph, environment, and task-domain primitives
@@ -14,6 +14,8 @@ The repository now has ten concrete layers:
 - Stage 8: the first observation-driven linear scoring policy
 - Stage 9: interaction-aware execution with route materialization and simplified congestion reservations
 - Stage 10: offline policy fitting and evaluation for candidate-scoring dispatch models
+- Stage 11: graph-conditioned dispatch learning with optional masked PPO fine-tuning
+- Stage 12: integrated continuous-time coordination with prioritized SIPP-style planning, exact current-epoch MAPF routing, and macro PPO
 
 ```text
 src/
@@ -25,9 +27,10 @@ src/
     agents/       # robot specifications and runtime state
     graph/        # warehouse topology, shortest paths, and explicit path utilities
     simulation/   # discrete-event engine, execution models, benchmarks
+    integrated/   # continuous-time integrated coordination, planning, and macro policies
     policies/     # heuristic baselines, observation hooks, scoring policies
     metrics/      # summary metrics, datasets, plots, and report writers
-    learning/     # offline dataset loading, splits, fit/eval, model artifacts
+    learning/     # offline dispatch fitting, graph fitting, RL training, model artifacts
     utils/        # future shared helpers
 ```
 
@@ -37,8 +40,8 @@ src/
 - Extend existing modules instead of creating redundant parallel stacks.
 - Preserve baseline workflows by making new fidelity modes opt-in or default-safe.
 - Prefer explicit typed contracts so simulation, reporting, and policy code stay aligned.
-- Keep the framing honest: simplified reservations are not MAPF, and observation hooks are not learned policies.
-- Treat offline fitting as candidate scoring over exported dispatch observations, not as a disguised GNN or RL stack.
+- Keep the framing honest: the dispatch stack still uses simplified reservations, while the integrated stack is the new place for centralized coordination claims.
+- Treat the learned integrated controller as experimental until benchmark gates are met.
 
 ## Interaction-Aware Execution Placement
 
@@ -58,10 +61,26 @@ Stage 10 also lands inside existing layers instead of beside them:
 - The simulator loads trained artifacts through the existing policy/config path.
 - Benchmark aggregation extends the current benchmark report layer with repeated-seed statistics.
 
+## Graph Dispatch Placement
+
+Stage 11 also lands inside existing layers instead of beside them:
+
+- Dataset export extends the existing manifest with dispatch-indexed node and arc tables.
+- Graph training reuses the same dispatch grouping and split abstractions as Stage 10.
+- Live inference still enters through the existing policy/config path.
+- RL fine-tuning wraps the existing simulator at dispatch-event boundaries instead of creating a separate control environment.
+
+## Integrated Coordination Placement
+
+Stage 12 adds a parallel coordination stack rather than replacing dispatch mode:
+
+- `simulation` still owns experiment and benchmark orchestration.
+- `integrated` owns timed trajectories, continuous occupancy rules, prioritized planning, and exact current-epoch joint route search.
+- `learning` now also owns end-to-end macro PPO training and artifact loading for integrated mode.
+- `metrics` and `reports` write integrated-only artifacts without changing the dispatch report contract.
+
 ## Still Out Of Scope
 
-- Full multi-agent path finding
-- Continuous collision geometry
 - Battery and charging behavior
-- Learned GNN dispatch policies
-- RL training pipelines
+- free-space off-graph motion physics
+- global warehouse-level optimal MAPF guarantees across dynamic task allocation and future releases

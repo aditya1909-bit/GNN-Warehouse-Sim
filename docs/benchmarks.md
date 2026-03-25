@@ -2,12 +2,14 @@
 
 ## Scope
 
-Benchmarks still run config-driven scenario/policy combinations, but the scenario set now includes contention-focused presets, congestion-sensitive metrics, and stronger repeated-seed aggregation.
+Benchmarks still run config-driven scenario/policy combinations, but they now cover two families: dispatch-centric comparisons and integrated coordination comparisons.
 
 ## Included Benchmark Manifests
 
 - `configs/policy_benchmark.toml`: general baseline comparison across the original synthetic scenarios
 - `configs/congestion_policy_benchmark.toml`: contention-focused comparison across interaction-heavy scenarios
+- `configs/integrated_coordination_benchmark.toml`: integrated coordination comparison across continuous-time scenarios
+- `configs/integrated_optimal_mapf_benchmark.toml`: prioritized versus exact current-epoch MAPF routing comparison
 
 ## Contention-Focused Scenarios
 
@@ -34,6 +36,13 @@ The aggregate rows now include congestion-aware metrics such as:
 - average congestion delay per completed task
 - blocked traversal events total
 
+Integrated benchmark rows also include:
+
+- `coordination_mode`
+- `safety_violations_total`
+- `replans_total`
+- `planner_failures_total`
+
 ## Repeated Seeds
 
 The benchmark manifest supports optional `benchmark.seeds`. When provided, the runner repeats each scenario/policy combination across those demand seeds while keeping the rest of the scenario config fixed.
@@ -51,10 +60,13 @@ Benchmarks can now reference artifact-backed learned policies through a small `p
 
 ```toml
 [benchmark]
-policies = ["fifo", "trained_linear_model"]
+policies = ["fifo", "trained_linear_model", "trained_graph_dispatch_model"]
 
 [benchmark.policy_artifacts]
 trained_linear_model = "artifacts/models/linear_dispatch_model.json"
+trained_graph_dispatch_model = "artifacts/models/graph_dispatch_model.json"
 ```
 
 That keeps learned and non-learned comparisons inside the same benchmark runner.
+
+For integrated mode, keep dedicated scenario manifests and policy sets instead of mixing dispatch and integrated policies in one benchmark file.

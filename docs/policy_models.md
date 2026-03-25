@@ -2,7 +2,10 @@
 
 ## Purpose
 
-The repository still contains simple, honest dispatch policies. Stage 10 adds offline-fitted candidate scorers, but the repository still does not train a GNN and still does not implement RL.
+The repository now contains two policy families:
+
+- dispatch policies over candidate robot-task assignments
+- integrated coordination policies over task-plus-route macros
 
 ## Implemented Now
 
@@ -11,9 +14,16 @@ The repository still contains simple, honest dispatch policies. Stage 10 adds of
 - `linear_assignment_model` dispatch policy
 - `trained_linear_model` artifact-backed dispatch policy
 - `trained_mlp_model` artifact-backed dispatch policy
+- `trained_graph_dispatch_model` artifact-backed graph dispatch policy
+- `prioritized_sipp_coordinator` integrated non-learning coordinator
+- `optimal_mapf_coordinator` integrated exact current-epoch routing coordinator
+- `random_macro` integrated smoke baseline
+- `trained_end_to_end_macro_ppo` integrated artifact-backed macro controller
 - named scalar feature weights loaded from TOML
 - offline grouped-softmax fitting for the linear scorer
 - one-hidden-layer MLP baseline over the same candidate features
+- PyG graph encoder with directed message passing and global graph pooling
+- masked PPO fine-tuning over dispatch events
 - validation of unsupported feature names
 
 ## Supported Linear Features
@@ -52,6 +62,9 @@ The repository still contains simple, honest dispatch policies. Stage 10 adds of
 - The fitted linear scorer learns those weights from exported dispatch decisions instead of hard-coding them.
 - The MLP baseline is still just a candidate-feature model, which keeps the comparison honest.
 - The congestion-aware heuristic gives a stronger non-learning baseline without pretending to be learned.
+- The graph-conditioned scorer actually uses graph structure through message passing instead of only engineered candidate features.
+- The integrated stack adds a separate centralized policy boundary for joint task-plus-route macro decisions.
+- The exact integrated MAPF baseline is still bounded to the current replan epoch, which keeps the optimality claim honest.
 
 ## Artifact-Backed Policies
 
@@ -59,16 +72,18 @@ Experiment configs can now point to a saved artifact:
 
 ```toml
 [simulation]
-policy = "trained_linear_model"
+policy = "trained_graph_dispatch_model"
 
 [policy_model]
-artifact_path = "artifacts/models/linear_dispatch_model.json"
+artifact_path = "artifacts/models/graph_dispatch_model.json"
 ```
 
-The trained artifact still scores candidate robot-task pairs independently within a dispatch event and then ranks them. That is not the same thing as a graph policy, MAPF solver, or end-to-end learned coordination controller.
+The dispatch artifacts still output candidate scores within one dispatch event and then rank them.
+
+The integrated artifact chooses task-plus-route macros across robots at replanning boundaries. It is the repository's experimental end-to-end coordination controller, but stronger claims remain benchmark-gated.
 
 ## Not Implemented
 
-- true graph-neural dispatch models
-- RL
-- richer imitation-learning objectives beyond the current grouped candidate-selection fitting
+- richer graph readouts such as endpoint-conditioned pooling
+- broader RL algorithms beyond the current masked PPO fine-tuning loop
+- stronger learned-coordination claims without passing the benchmark gate

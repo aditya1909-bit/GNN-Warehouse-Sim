@@ -10,6 +10,8 @@ When observation-dataset export is enabled, experiment runs now write:
 
 - `graph_nodes.csv`: static node features
 - `graph_arcs.csv`: directed travel arcs with distance and travel time
+- `dispatch_node_observations.csv`: one row per dispatch event and node with dynamic graph-state features
+- `dispatch_arc_observations.csv`: one row per dispatch event and directed arc with dynamic reservation-state features
 - `dispatch_observations.csv`: one row per idle-robot and ready-task candidate
   pair at each dispatch event, labeled with `is_selected`
 - `dataset_manifest.json`: dataset metadata and file manifest
@@ -26,6 +28,7 @@ Each dispatch row includes:
 - task timing, zones, and service estimate
 - robot-to-pickup and pickup-to-dropoff travel estimates
 - global queue and fleet counts at the decision time
+- graph-aware endpoint and shortest-path structure features
 - execution-model and reservation summary fields
 - estimated congestion delay and blocked-segment features for candidate routes
 
@@ -55,9 +58,18 @@ The loader accepts a single `dispatch_observations.csv`, a single
 That makes it possible to fit or evaluate a model across repeated runs without
 inventing a second dataset format.
 
+The static graph files now also carry lightweight structural counts:
+
+- `graph_nodes.csv`: node coordinates, type, degree, and shortest-path transit count
+- `graph_arcs.csv`: directed travel arcs plus shortest-path traversal count
+
+The dispatch-indexed graph tables carry the dynamic state used by the graph-conditioned model:
+
+- `dispatch_node_observations.csv`: robot occupancy, ready-task endpoints, reservation status, and reserved-time remaining
+- `dispatch_arc_observations.csv`: reservation status and reserved-time remaining by directed arc
+
 ## Current Limits
 
-- No replay buffer or episode serialization
-- No action masking beyond the exported candidate rows
-- No graph-tensor training format yet
-- No graph-neural dispatch model
+- No full episode replay buffer beyond the dispatch-indexed tables
+- No end-to-end warehouse-control action space beyond dispatch candidate choice
+- The graph-conditioned model uses global graph pooling rather than richer endpoint-conditioned readouts

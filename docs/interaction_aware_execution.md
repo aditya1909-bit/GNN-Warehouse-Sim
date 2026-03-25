@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Stage 9 adds the next honest fidelity step for this repository: realized route execution with simplified shared-resource contention.
+This page documents the dispatch stack's interaction-aware execution layer.
 
 It is meant to answer questions like:
 
@@ -10,7 +10,7 @@ It is meant to answer questions like:
 - how much delay comes from shared travel resources?
 - how should dispatch heuristics react to visible congestion?
 
-It is not full MAPF, global conflict-based search, or a continuous-motion simulator.
+It is not the repository's integrated MAPF-style coordination stack. For that layer, see `docs/integrated_coordination.md`.
 
 ## Execution Models
 

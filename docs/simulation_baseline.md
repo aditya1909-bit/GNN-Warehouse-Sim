@@ -2,7 +2,7 @@
 
 ## Current Scope
 
-The simulator is still a discrete-event dispatch baseline, but it now has two execution-fidelity layers:
+The dispatch-mode simulator is still a discrete-event baseline, and it now lives beside a separate integrated coordination stack.
 
 - `idealized`: original independent shortest-path travel calculations
 - `reserved_edges` / `reserved_nodes`: realized route execution with simplified shared-resource contention
@@ -44,7 +44,7 @@ The simulator still reports completion, waiting, turnaround, queue length, throu
 
 ## Current Simplifications
 
-- no full MAPF or optimal conflict resolution
+- no MAPF inside the dispatch-mode stack
 - no congestion-aware rerouting after assignment
 - no battery constraints
 - no robot failures or preemption

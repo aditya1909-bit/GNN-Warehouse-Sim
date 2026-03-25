@@ -4,6 +4,10 @@ from __future__ import annotations
 
 from warehouse_sim.agents import RobotSpec, RobotState
 from warehouse_sim.environment import WarehouseEnvironment
+from warehouse_sim.learning.graph_data import (
+    build_dispatch_arc_observation_records,
+    build_dispatch_node_observation_records,
+)
 from warehouse_sim.metrics.collector import compute_simulation_metrics
 from warehouse_sim.policies import (
     DispatchContext,
@@ -46,6 +50,8 @@ def run_simulation(
     current_time = 0.0
     executions: list[TaskExecution] = []
     dispatch_traces: list[DispatchTraceRecord] = []
+    dispatch_node_observations = []
+    dispatch_arc_observations = []
     snapshots: list[QueueSnapshot] = []
     _record_snapshot(current_time, queue, robot_states, executions, snapshots)
 
@@ -67,6 +73,19 @@ def run_simulation(
                 break
 
             dispatch_traces.extend(_build_dispatch_trace_records(context, decision, len(executions)))
+            dispatch_node_observations.extend(
+                build_dispatch_node_observation_records(
+                    context=context,
+                    dispatch_index=len(executions),
+                    decision=decision,
+                )
+            )
+            dispatch_arc_observations.extend(
+                build_dispatch_arc_observation_records(
+                    context=context,
+                    dispatch_index=len(executions),
+                )
+            )
             robot = _robot_by_id(robot_states, decision.robot_id)
             task = _task_by_id(ready_tasks, decision.task_id)
             queue.remove_task(task.task_id)
@@ -111,6 +130,8 @@ def run_simulation(
         robot_states=robot_states,
         executions=tuple(executions),
         dispatch_traces=tuple(dispatch_traces),
+        dispatch_node_observations=tuple(dispatch_node_observations),
+        dispatch_arc_observations=tuple(dispatch_arc_observations),
         unassigned_tasks=unassigned_tasks,
         queue_snapshots=tuple(snapshots),
         metrics=None,  # type: ignore[arg-type]
@@ -124,6 +145,8 @@ def run_simulation(
         robot_states=result.robot_states,
         executions=result.executions,
         dispatch_traces=result.dispatch_traces,
+        dispatch_node_observations=result.dispatch_node_observations,
+        dispatch_arc_observations=result.dispatch_arc_observations,
         unassigned_tasks=result.unassigned_tasks,
         queue_snapshots=result.queue_snapshots,
         metrics=metrics,
@@ -313,6 +336,30 @@ def _build_dispatch_trace_records(
                 travel_to_pickup_distance=candidate.feature("travel_to_pickup_distance"),
                 pickup_to_dropoff_time=candidate.feature("pickup_to_dropoff_time"),
                 pickup_to_dropoff_distance=candidate.feature("pickup_to_dropoff_distance"),
+                pickup_node_inbound_degree=int(candidate.feature("pickup_node_inbound_degree")),
+                pickup_node_outbound_degree=int(candidate.feature("pickup_node_outbound_degree")),
+                dropoff_node_inbound_degree=int(candidate.feature("dropoff_node_inbound_degree")),
+                dropoff_node_outbound_degree=int(candidate.feature("dropoff_node_outbound_degree")),
+                travel_to_pickup_mean_transit_count=candidate.feature("travel_to_pickup_mean_transit_count"),
+                travel_to_pickup_max_transit_count=candidate.feature("travel_to_pickup_max_transit_count"),
+                travel_to_pickup_mean_arc_traversal_count=candidate.feature(
+                    "travel_to_pickup_mean_arc_traversal_count"
+                ),
+                travel_to_pickup_max_arc_traversal_count=candidate.feature(
+                    "travel_to_pickup_max_arc_traversal_count"
+                ),
+                pickup_to_dropoff_mean_transit_count=candidate.feature(
+                    "pickup_to_dropoff_mean_transit_count"
+                ),
+                pickup_to_dropoff_max_transit_count=candidate.feature(
+                    "pickup_to_dropoff_max_transit_count"
+                ),
+                pickup_to_dropoff_mean_arc_traversal_count=candidate.feature(
+                    "pickup_to_dropoff_mean_arc_traversal_count"
+                ),
+                pickup_to_dropoff_max_arc_traversal_count=candidate.feature(
+                    "pickup_to_dropoff_max_arc_traversal_count"
+                ),
                 pending_task_count=int(candidate.feature("pending_task_count")),
                 ready_task_count=int(candidate.feature("ready_task_count")),
                 future_task_count=int(candidate.feature("future_task_count")),

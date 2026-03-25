@@ -19,6 +19,26 @@ class ExecutionModel(StrEnum):
     IDEALIZED = "idealized"
     RESERVED_EDGES = "reserved_edges"
     RESERVED_NODES = "reserved_nodes"
+    CONTINUOUS = "continuous"
+
+
+class CoordinationMode(StrEnum):
+    """Top-level coordination stack for a simulation run."""
+
+    DISPATCH = "dispatch"
+    INTEGRATED = "integrated"
+
+
+@dataclass(frozen=True)
+class CoordinationRuntimeConfig:
+    """Runtime settings for integrated coordination mode."""
+
+    control_dt: float = 0.25
+    replan_period: float = 1.0
+    robot_radius: float = 0.2
+    collision_clearance: float = 0.05
+    k_shortest_paths: int = 3
+    max_route_options_per_pair: int = 3
 
 
 @dataclass(frozen=True)
@@ -27,13 +47,19 @@ class SimulationConfig:
 
     horizon_seconds: float | None = None
     continue_until_all_tasks_complete: bool = True
+    coordination_mode: CoordinationMode = CoordinationMode.DISPATCH
     execution_model: ExecutionModel = ExecutionModel.IDEALIZED
+    coordination: CoordinationRuntimeConfig | None = None
 
     def __post_init__(self) -> None:
         if self.horizon_seconds is not None and self.horizon_seconds < 0:
             raise ValueError("horizon_seconds must be >= 0 when provided.")
+        if not isinstance(self.coordination_mode, CoordinationMode):
+            object.__setattr__(self, "coordination_mode", CoordinationMode(self.coordination_mode))
         if not isinstance(self.execution_model, ExecutionModel):
             object.__setattr__(self, "execution_model", ExecutionModel(self.execution_model))
+        if self.coordination_mode == CoordinationMode.INTEGRATED and self.coordination is None:
+            raise ValueError("coordination must be provided when coordination_mode is integrated.")
 
 
 @dataclass(frozen=True)
@@ -110,6 +136,18 @@ class DispatchTraceRecord:
     travel_to_pickup_distance: float
     pickup_to_dropoff_time: float
     pickup_to_dropoff_distance: float
+    pickup_node_inbound_degree: int
+    pickup_node_outbound_degree: int
+    dropoff_node_inbound_degree: int
+    dropoff_node_outbound_degree: int
+    travel_to_pickup_mean_transit_count: float
+    travel_to_pickup_max_transit_count: float
+    travel_to_pickup_mean_arc_traversal_count: float
+    travel_to_pickup_max_arc_traversal_count: float
+    pickup_to_dropoff_mean_transit_count: float
+    pickup_to_dropoff_max_transit_count: float
+    pickup_to_dropoff_mean_arc_traversal_count: float
+    pickup_to_dropoff_max_arc_traversal_count: float
     pending_task_count: int
     ready_task_count: int
     future_task_count: int
@@ -127,6 +165,35 @@ class DispatchTraceRecord:
 
 
 @dataclass(frozen=True)
+class DispatchNodeObservationRecord:
+    """Dynamic node-level graph observation captured at a dispatch event."""
+
+    dispatch_index: int
+    decision_time: float
+    node_id: str
+    is_robot_occupied: bool
+    robot_count: int
+    is_ready_task_pickup: bool
+    is_ready_task_dropoff: bool
+    is_selected_task_pickup: bool
+    is_selected_task_dropoff: bool
+    is_reserved_node: bool
+    reserved_time_remaining: float
+
+
+@dataclass(frozen=True)
+class DispatchArcObservationRecord:
+    """Dynamic directed-arc graph observation captured at a dispatch event."""
+
+    dispatch_index: int
+    decision_time: float
+    source_id: str
+    target_id: str
+    is_reserved_arc: bool
+    reserved_time_remaining: float
+
+
+@dataclass(frozen=True)
 class SimulationResult:
     """Completed simulation run and derived metrics."""
 
@@ -137,6 +204,12 @@ class SimulationResult:
     robot_states: tuple[RobotState, ...]
     executions: tuple[TaskExecution, ...]
     dispatch_traces: tuple[DispatchTraceRecord, ...]
+    dispatch_node_observations: tuple[DispatchNodeObservationRecord, ...]
+    dispatch_arc_observations: tuple[DispatchArcObservationRecord, ...]
     unassigned_tasks: tuple[Task, ...]
     queue_snapshots: tuple[QueueSnapshot, ...]
     metrics: "SimulationMetrics"
+    robot_trajectories: tuple[object, ...] = ()
+    macro_decisions: tuple[object, ...] = ()
+    collision_events: tuple[object, ...] = ()
+    planner_plans: tuple[object, ...] = ()

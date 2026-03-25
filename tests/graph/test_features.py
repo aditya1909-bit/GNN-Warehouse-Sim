@@ -24,6 +24,9 @@ def test_build_graph_features_expands_undirected_edges_to_directed_arcs() -> Non
     assert [arc.target_id for arc in features.arcs] == ["b", "a"]
     assert features.nodes[0].outbound_degree == 1
     assert features.nodes[0].inbound_degree == 1
+    assert features.nodes[0].shortest_path_transit_count == 0
+    assert features.arcs[0].shortest_path_traversal_count == 1
+    assert features.arcs[1].shortest_path_traversal_count == 1
 
 
 def test_build_graph_features_uses_zone_lookup_when_provided() -> None:

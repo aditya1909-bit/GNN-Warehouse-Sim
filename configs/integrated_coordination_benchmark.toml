@@ -1,0 +1,12 @@
+[benchmark]
+name = "integrated_coordination_benchmark"
+scenario_configs = [
+  "scenarios/integrated_narrow_bottleneck.toml",
+  "scenarios/integrated_high_fleet_density.toml",
+]
+policies = [
+  "prioritized_sipp_coordinator",
+  "random_macro",
+]
+output_dir = "outputs/benchmarks/integrated_coordination_benchmark"
+write_plots = false

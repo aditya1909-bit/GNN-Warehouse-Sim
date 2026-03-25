@@ -46,6 +46,7 @@ def run_benchmark_from_config(
                         "scenario_config": str(scenario_path),
                         "seed": seed,
                         "policy": policy,
+                        "coordination_mode": policy_config.simulation.coordination_mode,
                         "execution_model": policy_config.simulation.execution_model,
                         "tasks_generated": result.metrics.tasks_generated,
                         "tasks_completed": result.metrics.tasks_completed,
@@ -63,6 +64,9 @@ def run_benchmark_from_config(
                         "average_queue_length": result.metrics.average_queue_length,
                         "throughput_per_hour": result.metrics.throughput_per_hour,
                         "makespan": result.metrics.makespan,
+                        "safety_violations_total": result.metrics.safety_violations_total,
+                        "replans_total": result.metrics.replans_total,
+                        "planner_failures_total": result.metrics.planner_failures_total,
                         "summary_path": str(written_paths["summary"]),
                     }
                 )

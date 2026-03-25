@@ -73,11 +73,12 @@ def write_benchmark_report(
 
 
 def _aggregate_rows(rows: list[dict[str, object]]) -> list[dict[str, object]]:
-    grouped: dict[tuple[str, str, str], list[dict[str, object]]] = {}
+    grouped: dict[tuple[str, str, str, str], list[dict[str, object]]] = {}
     for row in rows:
         key = (
             str(row["scenario_name"]),
             str(row["policy"]),
+            str(row.get("coordination_mode", "dispatch")),
             str(row["execution_model"]),
         )
         grouped.setdefault(key, []).append(row)
@@ -90,10 +91,11 @@ def _aggregate_rows(rows: list[dict[str, object]]) -> list[dict[str, object]]:
         and not isinstance(value, bool)
     ]
     aggregate_rows: list[dict[str, object]] = []
-    for (scenario_name, policy, execution_model), grouped_rows in sorted(grouped.items()):
+    for (scenario_name, policy, coordination_mode, execution_model), grouped_rows in sorted(grouped.items()):
         aggregate_row: dict[str, object] = {
             "scenario_name": scenario_name,
             "policy": policy,
+            "coordination_mode": coordination_mode,
             "execution_model": execution_model,
             "run_count": len(grouped_rows),
             "seeds": ",".join(str(row["seed"]) for row in grouped_rows),

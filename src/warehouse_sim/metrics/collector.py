@@ -52,6 +52,9 @@ def compute_simulation_metrics(result: "SimulationResult") -> SimulationMetrics:
         throughput_per_hour=(len(result.executions) / makespan * 3600.0 if makespan > 0 else 0.0),
         makespan=makespan,
         robot_metrics=robot_metrics,
+        safety_violations_total=len(result.collision_events),
+        replans_total=len({getattr(plan, "plan_time", None) for plan in result.planner_plans}),
+        planner_failures_total=sum(getattr(plan, "status", "") == "failed" for plan in result.planner_plans),
     )
 
 

@@ -14,6 +14,8 @@ class OfflineDatasetConfig:
 
     source: Path
     feature_names: tuple[str, ...] | None = None
+    node_feature_names: tuple[str, ...] | None = None
+    edge_feature_names: tuple[str, ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -41,10 +43,13 @@ class OfflineModelConfig:
     l2_regularization: float = 1e-4
     patience: int = 25
     hidden_dim: int = 16
+    message_passing_layers: int = 2
+    dropout: float = 0.0
+    batch_size: int = 8
 
     def __post_init__(self) -> None:
-        if self.type not in {"linear", "mlp"}:
-            raise ConfigValidationError("offline model.type must be one of: linear, mlp")
+        if self.type not in {"linear", "mlp", "graph_dispatch"}:
+            raise ConfigValidationError("offline model.type must be one of: linear, mlp, graph_dispatch")
 
 
 @dataclass(frozen=True)
