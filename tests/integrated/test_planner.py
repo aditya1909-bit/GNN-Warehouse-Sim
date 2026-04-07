@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 from warehouse_sim.agents import RobotSpec, RobotState
-from warehouse_sim.environment import WarehouseEnvironment
+from warehouse_sim.environment import WarehouseEnvironment, obstacle_rectangles_from_blocked_cells
 from warehouse_sim.graph import SyntheticGridLayoutConfig, build_synthetic_grid_layout
 from warehouse_sim.integrated.free_space import (
     FreeSpaceOccupancyTable,
     detect_free_space_collision_events,
+    plan_obstacle_aware_free_space_candidate,
     plan_free_space_candidate,
 )
+from warehouse_sim.integrated.geometry import inflate_obstacles, segment_has_line_of_sight
 from warehouse_sim.integrated.engine import build_integrated_observation
 from warehouse_sim.integrated.models import MacroCandidate, TimedTraversal
 from warehouse_sim.integrated.planner import (
@@ -267,3 +269,49 @@ def test_plan_free_space_candidate_delays_conflicting_segment() -> None:
 
     assert second is not None
     assert second.traversals[0].start_time >= first.traversals[0].end_time
+
+
+def test_plan_obstacle_aware_free_space_candidate_reroutes_around_blocked_cell() -> None:
+    graph = build_synthetic_grid_layout(
+        SyntheticGridLayoutConfig(
+            rows=4,
+            columns=4,
+            blocked_cells=((1, 1),),
+        )
+    )
+    environment = WarehouseEnvironment(
+        graph,
+        obstacles=obstacle_rectangles_from_blocked_cells(((1, 1),), edge_length=1.0),
+    )
+    inflated_obstacles = inflate_obstacles(environment.obstacles(), margin=0.25)
+    occupancy = FreeSpaceOccupancyTable(robot_radius=0.2, collision_clearance=0.05)
+
+    planned = plan_obstacle_aware_free_space_candidate(
+        environment,
+        robot_id="robot_a",
+        start_time=0.0,
+        speed_multiplier=1.0,
+        occupancy_table=occupancy,
+        candidate=MacroCandidate(
+            macro_type="task_route",
+            task_id="task_a",
+            route_nodes=("r0_c0", "r2_c2"),
+            route_edges=(("r0_c0", "r2_c2"),),
+        ),
+        robot_radius=0.2,
+        collision_clearance=0.05,
+        service_time=0.0,
+    )
+
+    assert planned is not None
+    assert len(planned.traversals) > 1
+    assert all(
+        segment_has_line_of_sight(
+            (traversal.start_x, traversal.start_y),
+            (traversal.end_x, traversal.end_y),
+            obstacles=inflated_obstacles,
+        )
+        for traversal in planned.traversals
+        if traversal.start_x is not None and traversal.start_y is not None
+        and traversal.end_x is not None and traversal.end_y is not None
+    )

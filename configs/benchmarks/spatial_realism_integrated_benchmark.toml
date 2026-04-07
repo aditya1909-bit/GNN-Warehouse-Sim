@@ -1,0 +1,16 @@
+[benchmark]
+name = "spatial_realism_integrated_benchmark"
+scenario_family = "spatial_realism_integrated"
+scenario_configs = [
+  "../scenarios/integrated_obstacle_slalom.toml",
+  "../scenarios/integrated_blocked_cross_aisle.toml",
+  "../scenarios/integrated_unseen_geometry_generalization.toml",
+]
+policies = [
+  "random_macro",
+  "prioritized_sipp_coordinator",
+]
+output_dir = "../../outputs/benchmarks/spatial_realism_integrated_benchmark"
+write_plots = false
+write_manifest = true
+seeds = [7]

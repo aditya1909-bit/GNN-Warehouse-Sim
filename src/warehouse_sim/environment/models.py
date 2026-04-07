@@ -22,14 +22,53 @@ class Zone:
             raise GraphValidationError("Zones must contain at least one node.")
 
 
+@dataclass(frozen=True)
+class ObstacleRectangle:
+    """Axis-aligned obstacle rectangle in warehouse coordinates."""
+
+    obstacle_id: str
+    min_x: float
+    min_y: float
+    max_x: float
+    max_y: float
+
+    def __post_init__(self) -> None:
+        if not self.obstacle_id:
+            raise GraphValidationError("obstacle_id must be non-empty.")
+        if self.min_x >= self.max_x:
+            raise GraphValidationError("ObstacleRectangle min_x must be < max_x.")
+        if self.min_y >= self.max_y:
+            raise GraphValidationError("ObstacleRectangle min_y must be < max_y.")
+
+    def inflate(self, margin: float) -> "ObstacleRectangle":
+        """Return a rectangle expanded by a non-negative margin."""
+
+        if margin < 0:
+            raise GraphValidationError("ObstacleRectangle inflation margin must be >= 0.")
+        return ObstacleRectangle(
+            obstacle_id=f"{self.obstacle_id}__inflated_{margin:.6f}",
+            min_x=self.min_x - margin,
+            min_y=self.min_y - margin,
+            max_x=self.max_x + margin,
+            max_y=self.max_y + margin,
+        )
+
+
 class WarehouseEnvironment:
     """A warehouse environment backed by a topology graph and named zones."""
 
-    def __init__(self, graph: WarehouseGraph, zones: tuple[Zone, ...] | None = None) -> None:
+    def __init__(
+        self,
+        graph: WarehouseGraph,
+        zones: tuple[Zone, ...] | None = None,
+        obstacles: tuple[ObstacleRectangle, ...] | None = None,
+    ) -> None:
         self.graph = graph
         resolved_zones = zones if zones is not None else _derive_zones_from_graph(graph)
+        resolved_obstacles = obstacles if obstacles is not None else ()
         self._zones: dict[str, Zone] = {}
         self._node_to_zone: dict[str, str] = {}
+        self._obstacles: tuple[ObstacleRectangle, ...] = tuple(resolved_obstacles)
 
         for zone in resolved_zones:
             if zone.zone_id in self._zones:
@@ -45,6 +84,11 @@ class WarehouseEnvironment:
         """Return all zones."""
 
         return tuple(self._zones.values())
+
+    def obstacles(self) -> tuple[ObstacleRectangle, ...]:
+        """Return warehouse obstacle rectangles."""
+
+        return self._obstacles
 
     def zone(self, zone_id: str) -> Zone:
         """Fetch a zone by id."""
@@ -118,3 +162,29 @@ def _derive_zones_from_graph(graph: WarehouseGraph) -> tuple[Zone, ...]:
             continue
         grouped.setdefault(node.zone, []).append(node.node_id)
     return tuple(Zone(zone_id=zone_id, node_ids=tuple(sorted(node_ids))) for zone_id, node_ids in sorted(grouped.items()))
+
+
+def obstacle_rectangles_from_blocked_cells(
+    blocked_cells: tuple[tuple[int, int], ...],
+    *,
+    edge_length: float,
+) -> tuple[ObstacleRectangle, ...]:
+    """Materialize blocked grid cells as square obstacle rectangles."""
+
+    if edge_length <= 0:
+        raise GraphValidationError("edge_length must be > 0 for obstacle rectangle generation.")
+    half_extent = edge_length / 2.0
+    obstacles: list[ObstacleRectangle] = []
+    for row, column in blocked_cells:
+        center_x = float(column) * edge_length
+        center_y = float(row) * edge_length
+        obstacles.append(
+            ObstacleRectangle(
+                obstacle_id=f"blocked_r{row}_c{column}",
+                min_x=center_x - half_extent,
+                min_y=center_y - half_extent,
+                max_x=center_x + half_extent,
+                max_y=center_y + half_extent,
+            )
+        )
+    return tuple(obstacles)

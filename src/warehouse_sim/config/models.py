@@ -120,9 +120,9 @@ class CoordinationConfig:
     max_route_options_per_pair: int = 3
 
     def __post_init__(self) -> None:
-        if self.motion_model not in {"graph_embedded", "free_space"}:
+        if self.motion_model not in {"graph_embedded", "free_space", "obstacle_aware_free_space"}:
             raise ConfigValidationError(
-                "coordination.motion_model must be one of: graph_embedded, free_space."
+                "coordination.motion_model must be one of: graph_embedded, free_space, obstacle_aware_free_space."
             )
         if self.control_dt <= 0:
             raise ConfigValidationError("coordination.control_dt must be > 0.")

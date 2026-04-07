@@ -377,6 +377,23 @@ def plan_motion_candidate(
             service_time=service_time,
             constraints=constraints,
         )
+    if motion_model == "obstacle_aware_free_space":
+        from warehouse_sim.integrated.free_space import plan_obstacle_aware_free_space_candidate
+
+        if not hasattr(occupancy_table, "robot_radius") or not hasattr(occupancy_table, "collision_clearance"):
+            raise ValueError("obstacle_aware_free_space requires a free-space occupancy table.")
+        return plan_obstacle_aware_free_space_candidate(
+            environment,
+            robot_id=robot_id,
+            start_time=start_time,
+            speed_multiplier=speed_multiplier,
+            occupancy_table=occupancy_table,
+            candidate=candidate,
+            robot_radius=float(occupancy_table.robot_radius),
+            collision_clearance=float(occupancy_table.collision_clearance),
+            service_time=service_time,
+            constraints=constraints,
+        )
     return plan_route_candidate(
         environment,
         robot_id=robot_id,

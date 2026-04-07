@@ -164,6 +164,14 @@ output_dir = "outputs/integrated_free_space"
     assert config.coordination.motion_model == "free_space"
 
 
+def test_load_integrated_obstacle_aware_free_space_experiment_config() -> None:
+    config_path = Path(__file__).resolve().parents[2] / "configs" / "scenarios" / "integrated_obstacle_slalom.toml"
+    config = load_experiment_config(config_path)
+
+    assert config.coordination is not None
+    assert config.coordination.motion_model == "obstacle_aware_free_space"
+
+
 def test_load_integrated_rl_training_config() -> None:
     config_path = Path(__file__).resolve().parents[2] / "configs" / "integrated_macro_ppo_training.toml"
     config = load_integrated_rl_training_config(config_path)

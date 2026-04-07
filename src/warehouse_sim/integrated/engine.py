@@ -10,6 +10,7 @@ from warehouse_sim.integrated.free_space import (
     FreeSpaceOccupancyTable,
     detect_free_space_collision_events,
     estimate_free_space_completion_time,
+    estimate_obstacle_aware_completion_time,
 )
 from warehouse_sim.integrated.models import (
     CollisionEventRecord,
@@ -441,6 +442,28 @@ def _build_robot_macro_candidates(
                     dropoff_node=task.dropoff_node,
                 )
             )
+        elif config.coordination.motion_model == "obstacle_aware_free_space":
+            route_nodes = (robot.current_node, task.pickup_node, task.dropoff_node)
+            estimate = estimate_obstacle_aware_completion_time(
+                environment,
+                route_nodes=route_nodes,
+                speed_multiplier=robot.spec.speed_multiplier,
+                robot_radius=config.coordination.robot_radius,
+                collision_clearance=config.coordination.collision_clearance,
+            )
+            if estimate is None:
+                continue
+            candidates.append(
+                MacroCandidate(
+                    macro_type="task_route",
+                    task_id=task.task_id,
+                    route_nodes=route_nodes,
+                    route_edges=tuple(zip(route_nodes, route_nodes[1:])),
+                    estimated_completion_time=estimate,
+                    pickup_node=task.pickup_node,
+                    dropoff_node=task.dropoff_node,
+                )
+            )
         else:
             candidates.extend(
                 generate_route_options(
@@ -614,7 +637,7 @@ def _next_integrated_event_time(
 
 def _build_occupancy_table(config: SimulationConfig):
     assert config.coordination is not None
-    if config.coordination.motion_model == "free_space":
+    if config.coordination.motion_model in {"free_space", "obstacle_aware_free_space"}:
         return FreeSpaceOccupancyTable(
             robot_radius=config.coordination.robot_radius,
             collision_clearance=config.coordination.collision_clearance,
@@ -627,7 +650,7 @@ def _build_occupancy_table(config: SimulationConfig):
 
 def _detect_motion_collisions(*, traversals: tuple, config: SimulationConfig) -> tuple[tuple[float, str, str | None, str, str], ...]:
     assert config.coordination is not None
-    if config.coordination.motion_model == "free_space":
+    if config.coordination.motion_model in {"free_space", "obstacle_aware_free_space"}:
         return detect_free_space_collision_events(
             traversals,
             robot_radius=config.coordination.robot_radius,

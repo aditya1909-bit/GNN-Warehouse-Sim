@@ -68,3 +68,13 @@ def test_load_canonical_dispatch_benchmark_manifest() -> None:
     assert config.scenario_family == "canonical_dispatch"
     assert "trained_graph_dispatch_model" in config.policies
     assert config.seeds == (7, 11, 13, 17, 19)
+
+
+def test_load_spatial_realism_integrated_benchmark_manifest() -> None:
+    config_path = Path(__file__).resolve().parents[2] / "configs" / "benchmarks" / "spatial_realism_integrated_benchmark.toml"
+    config = load_benchmark_config(config_path)
+
+    assert config.name == "spatial_realism_integrated_benchmark"
+    assert config.scenario_family == "spatial_realism_integrated"
+    assert "prioritized_sipp_coordinator" in config.policies
+    assert config.seeds == (7,)

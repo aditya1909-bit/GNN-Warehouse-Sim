@@ -177,6 +177,7 @@ def _aggregate_rows(rows: list[dict[str, object]]) -> list[dict[str, object]]:
             aggregate_row[f"{metric_name}_ci95_low"] = mean - ci_halfwidth
             aggregate_row[f"{metric_name}_ci95_high"] = mean + ci_halfwidth
         aggregate_rows.append(aggregate_row)
+    _attach_generalization_gap_metric(aggregate_rows)
     return aggregate_rows
 
 
@@ -270,6 +271,7 @@ def _comparison_type(baseline: dict[str, object], challenger: dict[str, object])
 
 def _primary_claim_metric(baseline: dict[str, object], challenger: dict[str, object]) -> str:
     ordered_metrics = (
+        "collision_event_count",
         "throughput",
         "p95_task_completion_time",
         "mean_task_completion_time",
@@ -353,6 +355,16 @@ def _claim_text(
         return (
             f"{scenario_name}: {challenger_policy} versus {baseline_policy} is inconclusive on {primary_metric}."
         )
+    if primary_metric == "collision_event_count":
+        if winner == "challenger":
+            return (
+                f"{scenario_name}: {challenger_policy} reduces {primary_metric} by "
+                f"{uplift_percent:.2f}% versus {baseline_policy}."
+            )
+        return (
+            f"{scenario_name}: {baseline_policy} retains the lead on {primary_metric}; "
+            f"{challenger_policy} trails by {abs(uplift_percent):.2f}%."
+        )
     if winner == "challenger":
         return (
             f"{scenario_name}: {challenger_policy} improves {primary_metric} by "
@@ -364,16 +376,56 @@ def _claim_text(
     )
 
 
-def _aggregate_ranking_tuple(row: dict[str, object]) -> tuple[float, float, float, float]:
+def _aggregate_ranking_tuple(row: dict[str, object]) -> tuple[float, float, float, float, float, float]:
+    collision_event_count = row.get("collision_event_count_mean")
     throughput = row.get("throughput_mean")
     p95_completion = row.get("p95_task_completion_time_mean")
     mean_completion = row.get("mean_task_completion_time_mean")
     makespan = row.get("makespan_mean")
     return (
+        1.0 if collision_event_count is not None and float(collision_event_count) > 1e-9 else 0.0,
+        float(collision_event_count) if collision_event_count is not None else 0.0,
         -float(throughput) if throughput is not None else float("inf"),
         float(p95_completion) if p95_completion is not None else float("inf"),
         float(mean_completion) if mean_completion is not None else float("inf"),
         float(makespan) if makespan is not None else float("inf"),
+    )
+
+
+def _attach_generalization_gap_metric(aggregate_rows: list[dict[str, object]]) -> None:
+    rows_by_policy: dict[tuple[str, str], list[dict[str, object]]] = {}
+    for row in aggregate_rows:
+        rows_by_policy.setdefault((str(row["benchmark_name"]), str(row["policy"])), []).append(row)
+
+    for policy_rows in rows_by_policy.values():
+        seen_throughputs = [
+            float(row["throughput_mean"])
+            for row in policy_rows
+            if not _is_generalization_row(row) and row.get("throughput_mean") is not None
+        ]
+        unseen_throughputs = [
+            float(row["throughput_mean"])
+            for row in policy_rows
+            if _is_generalization_row(row) and row.get("throughput_mean") is not None
+        ]
+        if not seen_throughputs or not unseen_throughputs:
+            continue
+        gap = abs(float(np.mean(seen_throughputs)) - float(np.mean(unseen_throughputs)))
+        for row in policy_rows:
+            row["generalization_gap_seen_vs_unseen_mean"] = gap
+            row["generalization_gap_seen_vs_unseen_std"] = 0.0
+            row["generalization_gap_seen_vs_unseen_ci95_low"] = gap
+            row["generalization_gap_seen_vs_unseen_ci95_high"] = gap
+
+
+def _is_generalization_row(row: dict[str, object]) -> bool:
+    scenario_id = str(row.get("scenario_id", ""))
+    scenario_name = str(row.get("scenario_name", ""))
+    topology_difficulty = str(row.get("topology_difficulty", ""))
+    return (
+        topology_difficulty == "generalization"
+        or "unseen" in scenario_id
+        or "unseen" in scenario_name
     )
 
 

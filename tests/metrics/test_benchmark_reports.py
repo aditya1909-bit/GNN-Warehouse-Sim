@@ -42,6 +42,64 @@ def test_write_benchmark_report_aggregates_seed_statistics(tmp_path: Path) -> No
     assert len(payload["per_seed_breakdown"]["scenario_a"]["fifo"]) == 2
 
 
+def test_write_benchmark_report_ranks_safe_policy_ahead_of_unsafe_faster_policy(tmp_path: Path) -> None:
+    rows = [
+        _row(
+            "scenario_safe",
+            "random_macro",
+            "integrated_baseline",
+            1,
+            throughput=12.0,
+            completion=7.0,
+            collision_event_count=4,
+            coordination_mode="integrated",
+            policy_family="random_integrated",
+        ),
+        _row(
+            "scenario_safe",
+            "prioritized_sipp_coordinator",
+            "integrated_planner",
+            1,
+            throughput=10.0,
+            completion=8.0,
+            collision_event_count=0,
+            coordination_mode="integrated",
+            policy_family="planner_integrated",
+        ),
+    ]
+
+    written = write_benchmark_report(tmp_path, "safe_benchmark", rows)
+    payload = json.loads(written["summary_json"].read_text(encoding="utf-8"))
+
+    assert payload["best_by_scenario"]["scenario_safe"]["policy"] == "prioritized_sipp_coordinator"
+    assert payload["claims"][0]["primary_metric"] == "collision_event_count"
+    assert payload["claims"][0]["winner"] == "challenger"
+
+
+def test_write_benchmark_report_emits_generalization_gap_for_seen_and_unseen_regimes(tmp_path: Path) -> None:
+    rows = [
+        _row("seen_a", "fifo", "dispatch_baseline", 1, throughput=10.0, completion=8.0),
+        _row("seen_b", "fifo", "dispatch_baseline", 1, throughput=12.0, completion=8.0),
+        _row(
+            "unseen_layout_generalization",
+            "fifo",
+            "dispatch_baseline",
+            1,
+            throughput=7.0,
+            completion=8.0,
+            topology_difficulty="generalization",
+        ),
+    ]
+
+    written = write_benchmark_report(tmp_path, "generalization_benchmark", rows)
+    payload = json.loads(written["summary_json"].read_text(encoding="utf-8"))
+    seen_row = next(row for row in payload["aggregates"] if row["scenario_id"] == "seen_a")
+
+    assert seen_row["generalization_gap_seen_vs_unseen_mean"] == 4.0
+    assert seen_row["generalization_gap_seen_vs_unseen_ci95_low"] == 4.0
+    assert seen_row["generalization_gap_seen_vs_unseen_ci95_high"] == 4.0
+
+
 def _row(
     scenario_name: str,
     policy: str,
@@ -50,6 +108,10 @@ def _row(
     *,
     throughput: float,
     completion: float,
+    collision_event_count: int = 0,
+    coordination_mode: str = "dispatch",
+    policy_family: str | None = None,
+    topology_difficulty: str = "open",
 ) -> dict[str, object]:
     return {
         "metric_schema_version": METRIC_SCHEMA_VERSION,
@@ -60,9 +122,9 @@ def _row(
         "scenario_config": f"configs/{scenario_name}.toml",
         "seed": seed,
         "policy": policy,
-        "policy_family": "learned_dispatch" if "trained" in policy else "heuristic_dispatch",
+        "policy_family": policy_family or ("learned_dispatch" if "trained" in policy else "heuristic_dispatch"),
         "policy_role": policy_role,
-        "coordination_mode": "dispatch",
+        "coordination_mode": coordination_mode,
         "execution_model": "idealized",
         "motion_model": "graph_embedded",
         "fleet_size": 3,
@@ -72,7 +134,7 @@ def _row(
         "layout_columns": 5,
         "blocked_cell_count": 0,
         "directed_edge_count": 0,
-        "topology_difficulty": "open",
+        "topology_difficulty": topology_difficulty,
         "summary_path": f"outputs/{scenario_name}/{policy}/summary.json",
         "throughput": throughput,
         "mean_task_completion_time": completion,
@@ -84,7 +146,7 @@ def _row(
         "travel_distance_per_completed_task": 3.0,
         "realized_waiting_time": 0.0,
         "congestion_event_count": 0,
-        "collision_event_count": 0,
+        "collision_event_count": collision_event_count,
         "deadlock_livelock_incident_count": 0,
         "planning_latency": None,
         "replanning_count": 0,

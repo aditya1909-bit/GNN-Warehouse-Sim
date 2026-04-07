@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import pytest
 
-from warehouse_sim.environment import WarehouseEnvironment, Zone
+from warehouse_sim.environment import (
+    WarehouseEnvironment,
+    Zone,
+    obstacle_rectangles_from_blocked_cells,
+)
 from warehouse_sim.graph import SyntheticGridLayoutConfig, build_synthetic_grid_layout
 
 
@@ -35,3 +39,25 @@ def test_environment_rejects_duplicate_zone_membership() -> None:
             ),
         )
 
+
+def test_environment_retains_obstacle_geometry_from_blocked_cells() -> None:
+    graph = build_synthetic_grid_layout(
+        SyntheticGridLayoutConfig(
+            rows=3,
+            columns=3,
+            edge_length=2.0,
+            blocked_cells=((1, 1),),
+        )
+    )
+    environment = WarehouseEnvironment(
+        graph=graph,
+        obstacles=obstacle_rectangles_from_blocked_cells(((1, 1),), edge_length=2.0),
+    )
+
+    obstacles = environment.obstacles()
+    assert len(obstacles) == 1
+    assert obstacles[0].obstacle_id == "blocked_r1_c1"
+    assert obstacles[0].min_x == 1.0
+    assert obstacles[0].min_y == 1.0
+    assert obstacles[0].max_x == 3.0
+    assert obstacles[0].max_y == 3.0

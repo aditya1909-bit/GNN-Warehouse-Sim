@@ -57,3 +57,21 @@ def test_run_integrated_benchmark_manifest(tmp_path: Path) -> None:
     payload = json.loads(written["summary_json"].read_text(encoding="utf-8"))
     assert payload["benchmark_name"] == "integrated_coordination_benchmark"
     assert any(row["coordination_mode"] == "integrated" for row in payload["runs"])
+
+
+def test_run_spatial_realism_integrated_benchmark_manifest(tmp_path: Path) -> None:
+    config_path = Path(__file__).resolve().parents[2] / "configs" / "benchmarks" / "spatial_realism_integrated_benchmark.toml"
+
+    written = run_benchmark_from_path(
+        benchmark_config_path=config_path,
+        benchmark_root_override=tmp_path,
+        force_write_plots=False,
+    )
+
+    payload = json.loads(written["summary_json"].read_text(encoding="utf-8"))
+    assert payload["benchmark_name"] == "spatial_realism_integrated_benchmark"
+    assert set(payload["best_by_scenario"]) == {
+        "integrated_blocked_cross_aisle",
+        "integrated_obstacle_slalom",
+        "integrated_unseen_geometry_generalization",
+    }

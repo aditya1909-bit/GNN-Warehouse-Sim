@@ -7,7 +7,7 @@ from pathlib import Path
 from warehouse_sim.agents import RobotSpec
 from warehouse_sim.config import ExperimentConfig, load_experiment_config
 from warehouse_sim.demand import DemandGenerationConfig, generate_task_demand
-from warehouse_sim.environment import WarehouseEnvironment
+from warehouse_sim.environment import WarehouseEnvironment, obstacle_rectangles_from_blocked_cells
 from warehouse_sim.graph import NodeType, SyntheticGridLayoutConfig, build_synthetic_grid_layout
 from warehouse_sim.integrated.engine import run_integrated_simulation
 from warehouse_sim.integrated.policies import (
@@ -126,7 +126,13 @@ def build_experiment_inputs(
             },
         )
     )
-    environment = WarehouseEnvironment(graph=graph)
+    environment = WarehouseEnvironment(
+        graph=graph,
+        obstacles=obstacle_rectangles_from_blocked_cells(
+            config.layout.blocked_cells,
+            edge_length=config.layout.edge_length,
+        ),
+    )
 
     demand = generate_task_demand(
         DemandGenerationConfig(
