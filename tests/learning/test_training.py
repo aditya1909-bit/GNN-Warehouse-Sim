@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import csv
+import json
 from pathlib import Path
+
+import pytest
 
 from warehouse_sim.learning import (
     GroupedLinearFitConfig,
@@ -82,6 +85,22 @@ def test_weighted_linear_training_records_benchmark_weighting(tmp_path: Path) ->
     assert result.artifact.metadata["training"]["benchmark_weighting"] is True
 
 
+def test_load_dispatch_model_artifact_rejects_legacy_version(tmp_path: Path) -> None:
+    artifact_path = tmp_path / "legacy.json"
+    legacy_payload = {
+        "artifact_version": 1,
+        "model_type": "grouped_linear",
+        "objective": "dispatch_group_softmax_cross_entropy",
+        "feature_names": ["travel_to_pickup_time", "task_age"],
+        "parameters": {"weights": [-1.0, 1.0], "bias": 0.0},
+        "metadata": {},
+    }
+    artifact_path.write_text(json.dumps(legacy_payload, indent=2), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="battery-aware dispatch requires retraining"):
+        load_dispatch_model_artifact(artifact_path)
+
+
 def _write_training_dataset(path: Path) -> Path:
     rows = []
     for dispatch_index in range(10):
@@ -127,9 +146,13 @@ def _row(
         "dispatch_index": dispatch_index,
         "decision_time": float(dispatch_index),
         "selected_robot_id": "selected_robot",
+        "selected_action_type": "task",
         "selected_task_id": "selected_task",
+        "selected_charging_node_id": "",
         "candidate_robot_id": candidate_robot_id,
+        "candidate_action_type": "task",
         "candidate_task_id": candidate_task_id,
+        "candidate_charging_node_id": "",
         "is_selected": is_selected,
         "robot_current_node": "r0_c0",
         "robot_current_zone": "staging_zone",

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+Point2D = tuple[float, float]
+
 
 @dataclass(frozen=True)
 class TimedWaypoint:
@@ -60,8 +62,11 @@ class MacroCandidate:
     route_nodes: tuple[str, ...] = ()
     route_edges: tuple[tuple[str, str], ...] = ()
     estimated_completion_time: float = 0.0
+    service_time_estimate: float = 0.0
     pickup_node: str | None = None
     dropoff_node: str | None = None
+    charging_node: str | None = None
+    leg_points: tuple[tuple[Point2D, ...], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -73,6 +78,7 @@ class MacroDecisionRecord:
     robot_id: str
     macro_type: str
     task_id: str | None
+    charging_node: str | None
     route_nodes: tuple[str, ...]
     route_edges: tuple[str, ...]
     estimated_completion_time: float

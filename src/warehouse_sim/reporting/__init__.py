@@ -1,6 +1,7 @@
 """Reporting helpers for reproducible benchmark artifacts."""
 
 from warehouse_sim.reporting.artifact_manifest import (
+    load_artifact_aliases,
     write_artifact_manifest,
     write_config_snapshot,
     write_seed_bundle,
@@ -33,6 +34,7 @@ __all__ = [
     "build_learning_metric_record",
     "build_simulation_metric_record",
     "default_metric_payload",
+    "load_artifact_aliases",
     "ordered_aggregate_fields",
     "ordered_run_fields",
     "validate_benchmark_aggregate_row",

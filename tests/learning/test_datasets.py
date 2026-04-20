@@ -6,6 +6,8 @@ import csv
 import json
 from pathlib import Path
 
+import pytest
+
 from warehouse_sim.learning import load_dispatch_observation_dataset, split_dispatch_observation_dataset
 from warehouse_sim.learning.splits import SplitConfig
 
@@ -92,6 +94,17 @@ def test_manifest_tree_preferred_over_stale_root_dataset(tmp_path: Path) -> None
     assert set(dataset.metadata["scenario_seed"]) == {"stale::seed_1", "scenario_a::seed_11", "scenario_b::seed_13"}
 
 
+def test_load_dispatch_observation_dataset_rejects_legacy_manifest(tmp_path: Path) -> None:
+    _write_dataset_run(tmp_path / "legacy", run_id="legacy", scenario_name="legacy", seed=7, dispatch_start=0)
+    manifest_path = tmp_path / "legacy" / "dataset_manifest.json"
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    payload["dataset_schema_version"] = 1
+    manifest_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="schema version 2"):
+        load_dispatch_observation_dataset(tmp_path / "legacy")
+
+
 def _write_dataset_run(
     output_dir: Path,
     *,
@@ -137,6 +150,7 @@ def _write_dataset_run(
     manifest_path.write_text(
         json.dumps(
             {
+                "dataset_schema_version": 2,
                 "run_id": run_id,
                 "scenario_name": scenario_name,
                 "experiment_name": scenario_name,
@@ -166,9 +180,13 @@ def _dispatch_row(
         "dispatch_index": dispatch_index,
         "decision_time": decision_time,
         "selected_robot_id": "selected_robot",
+        "selected_action_type": "task",
         "selected_task_id": "selected_task",
+        "selected_charging_node_id": "",
         "candidate_robot_id": candidate_robot_id,
+        "candidate_action_type": "task",
         "candidate_task_id": candidate_task_id,
+        "candidate_charging_node_id": "",
         "is_selected": is_selected,
         "robot_current_node": "r0_c0",
         "robot_current_zone": "staging_zone",

@@ -65,8 +65,14 @@ def load_dispatch_model_artifact(path: Path) -> DispatchModelArtifact:
     """Load a saved dispatch model artifact."""
 
     payload = json.loads(path.read_text(encoding="utf-8"))
+    artifact_version = int(payload["artifact_version"])
+    if artifact_version != 2:
+        raise ValueError(
+            f"Dispatch artifact {path} uses version {artifact_version}; "
+            "battery-aware dispatch requires retraining against the v2 action dataset schema."
+        )
     return DispatchModelArtifact(
-        artifact_version=int(payload["artifact_version"]),
+        artifact_version=artifact_version,
         model_type=str(payload["model_type"]),
         objective=str(payload["objective"]),
         feature_names=validate_candidate_feature_names(tuple(payload["feature_names"])),

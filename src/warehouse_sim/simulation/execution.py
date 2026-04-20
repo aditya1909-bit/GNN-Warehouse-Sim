@@ -37,6 +37,18 @@ class AssignmentExecution:
     blocked_traversal_events: int
 
 
+@dataclass(frozen=True)
+class ChargeExecution:
+    """Realized execution details for a charging action."""
+
+    travel_to_charger: RouteExecution
+    arrival_time: float
+    charging_start_time: float
+    completion_time: float
+    waiting_time: float
+    charge_duration: float
+
+
 class ResourceReservationTable:
     """Track future occupancy for simplified node/edge reservation models."""
 
@@ -44,6 +56,7 @@ class ResourceReservationTable:
         self.execution_model = execution_model
         self._edge_reserved_until: dict[tuple[str, str], float] = {}
         self._node_reserved_until: dict[str, float] = {}
+        self._charger_reserved_until: dict[str, float] = {}
 
     def execute_assignment(
         self,
@@ -100,6 +113,42 @@ class ResourceReservationTable:
             completion_time=completion_time,
             congestion_delay_time=congestion_delay_time,
             blocked_traversal_events=blocked_traversal_events,
+        )
+
+    def execute_charge(
+        self,
+        *,
+        environment: WarehouseEnvironment,
+        execution_model: ExecutionModel,
+        current_time: float,
+        start_node: str,
+        charging_node: str,
+        charge_duration: float,
+        speed_multiplier: float,
+    ) -> ChargeExecution:
+        """Plan and reserve a realized robot charging action."""
+
+        to_charger = self._execute_leg(
+            environment=environment,
+            execution_model=execution_model,
+            source=start_node,
+            target=charging_node,
+            start_time=current_time,
+            speed_multiplier=speed_multiplier,
+        )
+        arrival_time = current_time + to_charger.realized_travel_time
+        charging_start_time = max(arrival_time, self._charger_reserved_until.get(charging_node, 0.0))
+        waiting_time = max(charging_start_time - arrival_time, 0.0)
+        completion_time = charging_start_time + charge_duration
+        self._charger_reserved_until[charging_node] = completion_time
+        self._node_reserved_until[charging_node] = max(self._node_reserved_until.get(charging_node, 0.0), completion_time)
+        return ChargeExecution(
+            travel_to_charger=to_charger,
+            arrival_time=arrival_time,
+            charging_start_time=charging_start_time,
+            completion_time=completion_time,
+            waiting_time=waiting_time,
+            charge_duration=charge_duration,
         )
 
     def snapshot(self, current_time: float) -> CongestionObservation:

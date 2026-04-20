@@ -7,7 +7,11 @@ from pathlib import Path
 from warehouse_sim.agents import RobotSpec
 from warehouse_sim.config import ExperimentConfig, load_experiment_config
 from warehouse_sim.demand import DemandGenerationConfig, generate_task_demand
-from warehouse_sim.environment import WarehouseEnvironment, obstacle_rectangles_from_blocked_cells
+from warehouse_sim.environment import (
+    ObstaclePolygon,
+    WarehouseEnvironment,
+    obstacle_polygons_from_blocked_cells,
+)
 from warehouse_sim.graph import NodeType, SyntheticGridLayoutConfig, build_synthetic_grid_layout
 from warehouse_sim.integrated.engine import run_integrated_simulation
 from warehouse_sim.integrated.policies import (
@@ -17,7 +21,6 @@ from warehouse_sim.integrated.policies import (
     RandomMacroPolicy,
 )
 from warehouse_sim.learning.artifacts import load_dispatch_model_artifact
-from warehouse_sim.learning.graph_model import load_graph_dispatch_model
 from warehouse_sim.metrics import (
     write_default_plots,
     write_observation_dataset,
@@ -35,6 +38,7 @@ from warehouse_sim.policies import (
 )
 from warehouse_sim.simulation.engine import run_simulation
 from warehouse_sim.simulation.models import (
+    BatteryRuntimeConfig,
     CoordinationMode,
     CoordinationRuntimeConfig,
     ExecutionModel,
@@ -118,6 +122,7 @@ def build_experiment_inputs(
                 config.layout.storage_cell: NodeType.STORAGE,
                 config.layout.dropoff_cell: NodeType.DROPOFF,
                 config.layout.staging_cell: NodeType.STAGING,
+                **{cell: NodeType.CHARGING for cell in config.layout.charging_cells},
             },
             zone_labels={
                 config.layout.storage_cell: "storage_zone",
@@ -126,12 +131,20 @@ def build_experiment_inputs(
             },
         )
     )
+    blocked_obstacles = obstacle_polygons_from_blocked_cells(
+        config.layout.blocked_cells,
+        edge_length=config.layout.edge_length,
+    )
+    configured_polygons = tuple(
+        ObstaclePolygon(
+            obstacle_id=f"layout_polygon_{index + 1}",
+            vertices=polygon,
+        )
+        for index, polygon in enumerate(config.layout.obstacle_polygons)
+    )
     environment = WarehouseEnvironment(
         graph=graph,
-        obstacles=obstacle_rectangles_from_blocked_cells(
-            config.layout.blocked_cells,
-            edge_length=config.layout.edge_length,
-        ),
+        obstacles=(*blocked_obstacles, *configured_polygons),
     )
 
     demand = generate_task_demand(
@@ -164,6 +177,8 @@ def build_experiment_inputs(
             robot_id=f"robot_{index + 1}",
             initial_node=environment.default_node_for_zone(config.robots.initial_zone).node_id,
             speed_multiplier=config.robots.speed_multiplier,
+            battery_capacity=0.0 if config.battery is None else config.battery.capacity,
+            initial_charge_fraction=1.0 if config.battery is None else config.battery.initial_charge_fraction,
         )
         for index in range(config.robots.count)
     )
@@ -187,6 +202,20 @@ def build_experiment_inputs(
                     collision_clearance=config.coordination.collision_clearance,
                     k_shortest_paths=config.coordination.k_shortest_paths,
                     max_route_options_per_pair=config.coordination.max_route_options_per_pair,
+                )
+            ),
+            battery=(
+                None
+                if config.battery is None
+                else BatteryRuntimeConfig(
+                    enabled=config.battery.enabled,
+                    capacity=config.battery.capacity,
+                    initial_charge_fraction=config.battery.initial_charge_fraction,
+                    travel_energy_per_distance=config.battery.travel_energy_per_distance,
+                    service_energy=config.battery.service_energy,
+                    charge_rate=config.battery.charge_rate,
+                    dispatch_charge_threshold=config.battery.dispatch_charge_threshold,
+                    minimum_reserve_fraction=config.battery.minimum_reserve_fraction,
                 )
             ),
         ),
@@ -247,6 +276,8 @@ def _build_policy(config: ExperimentConfig):
     if policy_name == "trained_graph_dispatch_model":
         assert config.policy_model is not None
         assert config.policy_model.artifact_path is not None
+        from warehouse_sim.learning.graph_model import load_graph_dispatch_model
+
         loaded = load_graph_dispatch_model(config.policy_model.artifact_path)
         return GraphDispatchArtifactPolicy(
             model=loaded.model,

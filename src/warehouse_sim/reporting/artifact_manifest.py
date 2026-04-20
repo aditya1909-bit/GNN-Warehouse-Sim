@@ -63,6 +63,20 @@ def write_artifact_manifest(
     return output_path
 
 
+def load_artifact_aliases(path: Path) -> dict[str, Path]:
+    """Load named artifact aliases from a manifest."""
+
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    metadata = payload.get("metadata", {})
+    aliases = metadata.get("artifact_aliases", {})
+    if not isinstance(aliases, dict):
+        raise ValueError(f"Artifact manifest {path} does not contain a valid artifact_aliases mapping.")
+    return {
+        str(alias): (path.parent / Path(str(relative_path))).resolve()
+        for alias, relative_path in aliases.items()
+    }
+
+
 def _git_commit_hash(start_dir: Path) -> str | None:
     try:
         completed = subprocess.run(

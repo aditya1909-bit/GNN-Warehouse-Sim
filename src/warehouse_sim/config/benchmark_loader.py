@@ -29,6 +29,11 @@ def load_benchmark_config(path: Path) -> BenchmarkConfig:
         str(policy_name): Path(str(artifact_path))
         for policy_name, artifact_path in benchmark.get("policy_artifacts", {}).items()
     }
+    artifact_manifest = (
+        None
+        if benchmark.get("artifact_manifest") is None
+        else Path(str(benchmark["artifact_manifest"]))
+    )
 
     return BenchmarkConfig(
         name=str(benchmark["name"]),
@@ -40,4 +45,5 @@ def load_benchmark_config(path: Path) -> BenchmarkConfig:
         write_manifest=bool(benchmark.get("write_manifest", True)),
         seeds=seeds,
         policy_artifacts=policy_artifacts,
+        artifact_manifest=artifact_manifest,
     )

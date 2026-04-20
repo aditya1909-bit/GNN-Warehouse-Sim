@@ -220,9 +220,13 @@ def build_graph_dispatch_example_from_context(
             "dispatch_index": dispatch_index,
             "decision_time": context.current_time,
             "selected_robot_id": "" if decision is None else decision.robot_id,
-            "selected_task_id": "" if decision is None else decision.task_id,
+            "selected_action_type": "task" if decision is None else decision.action_type,
+            "selected_task_id": "" if decision is None or decision.task_id is None else decision.task_id,
+            "selected_charging_node_id": "" if decision is None or decision.charging_node_id is None else decision.charging_node_id,
             "candidate_robot_id": candidate.robot_id,
-            "candidate_task_id": candidate.task_id,
+            "candidate_action_type": candidate.action_type,
+            "candidate_task_id": "" if candidate.task_id is None else candidate.task_id,
+            "candidate_charging_node_id": "" if candidate.charging_node_id is None else candidate.charging_node_id,
             "is_selected": bool(labels[index]),
             **candidate.feature_values,
         }
@@ -378,7 +382,9 @@ def build_graph_dispatch_example_from_tables(
         metadata={
             **dict(metadata),
             "candidate_robot_ids": tuple(str(row["candidate_robot_id"]) for row in ordered_candidates),
+            "candidate_action_types": tuple(str(row["candidate_action_type"]) for row in ordered_candidates),
             "candidate_task_ids": tuple(str(row["candidate_task_id"]) for row in ordered_candidates),
+            "candidate_charging_node_ids": tuple(str(row["candidate_charging_node_id"]) for row in ordered_candidates),
         },
     )
 
@@ -399,7 +405,7 @@ def build_dispatch_node_observation_records(
     ready_dropoffs = {task.dropoff_node for task in context.ready_tasks}
     selected_pickups: set[str] = set()
     selected_dropoffs: set[str] = set()
-    if decision is not None:
+    if decision is not None and decision.action_type == "task":
         selected_task = next(task for task in context.ready_tasks if task.task_id == decision.task_id)
         selected_pickups.add(selected_task.pickup_node)
         selected_dropoffs.add(selected_task.dropoff_node)
@@ -487,6 +493,8 @@ def _resolve_graph_dataset_sources(source: Path) -> tuple[_GraphDatasetSource, .
 
 def _graph_dataset_source_from_manifest(path: Path) -> _GraphDatasetSource:
     payload = json.loads(path.read_text(encoding="utf-8"))
+    if int(payload.get("dataset_schema_version", 0)) != 2:
+        raise ValueError(f"Graph dispatch dataset manifest {path} is not schema version 2.")
     files = payload["files"]
     return _GraphDatasetSource(
         manifest_path=path.resolve(),

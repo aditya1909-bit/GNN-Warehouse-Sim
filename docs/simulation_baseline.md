@@ -46,6 +46,6 @@ The simulator still reports completion, waiting, turnaround, queue length, throu
 
 - no MAPF inside the dispatch-mode stack
 - no congestion-aware rerouting after assignment
-- no battery constraints
+- no global multi-charge scheduling or battery degradation model
 - no robot failures or preemption
 - no learned dispatch policy

@@ -8,9 +8,11 @@ This stack supports:
 
 - centralized multi-robot coordination
 - graph-embedded continuous-time motion on the warehouse graph
-- optional open-plane free-space motion between node coordinates
+- continuous off-graph motion between node coordinates with polygon obstacle avoidance
 - prioritized SIPP-style planning with timed trajectories
 - exact current-epoch joint route search over the selected macro candidate set
+- multi-route continuous branching over per-leg geometric alternatives
+- battery-aware charge macros alongside task macros
 - explicit collision-event reporting
 - an experimental end-to-end macro PPO controller
 
@@ -34,7 +36,7 @@ k_shortest_paths = 3
 max_route_options_per_pair = 3
 ```
 
-`execution_model` stays `idealized` in config for compatibility, but integrated mode ignores the old reservation execution stack and always uses continuous motion internally. `coordination.motion_model = "graph_embedded"` preserves the existing edge-constrained realization. `coordination.motion_model = "free_space"` switches to direct open-plane motion between node coordinates with disc-robot collision checks.
+`execution_model` stays `idealized` in config for compatibility, but integrated mode ignores the old reservation execution stack and always uses continuous motion internally. `coordination.motion_model = "graph_embedded"` preserves the existing edge-constrained realization. `coordination.motion_model = "free_space"` and `coordination.motion_model = "obstacle_aware_free_space"` now resolve through the same continuous planner; the former remains as a compatibility alias while the planner consumes polygon obstacles when present.
 
 ## Implemented Policies
 
@@ -43,9 +45,9 @@ max_route_options_per_pair = 3
 - `random_macro`: weak integrated smoke baseline
 - `trained_end_to_end_macro_ppo`: artifact-backed macro PPO controller
 
-The `optimal_mapf_coordinator` claim is intentionally bounded. It is exact over the current epoch's finite task-route macro candidates and continuous graph-execution realization, not over future task releases or the full warehouse-level task-allocation problem.
+The `optimal_mapf_coordinator` claim is intentionally bounded. It is exact over the current epoch's finite macro candidate surface and realized continuous trajectories, not over future task releases or the full warehouse-level task-allocation problem.
 
-The free-space mode is also intentionally bounded. It is an obstacle-agnostic open-plane realization over the node coordinate system, not a full polygonal warehouse-geometry or rigid-body physics engine.
+The continuous motion mode is also intentionally bounded. It now supports explicit polygon obstacles, blocked-cell square obstacles, and multiple geometric alternatives per leg, but it is still not a full rigid-body physics or warehouse-CAD stack.
 
 ## Outputs
 
@@ -55,12 +57,16 @@ Integrated runs write the standard summary files plus:
 - `macro_decisions.csv`
 - `collision_events.csv`
 - `planner_plans.csv`
+- `charging_executions.csv`
 
 Summary metrics now also include:
 
 - `safety_violations_total`
 - `replans_total`
 - `planner_failures_total`
+- `total_energy_consumed`
+- `total_energy_charged`
+- `total_charging_time`
 
 ## Claim Boundary
 

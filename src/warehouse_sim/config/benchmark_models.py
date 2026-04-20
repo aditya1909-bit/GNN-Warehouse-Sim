@@ -21,6 +21,7 @@ class BenchmarkConfig:
     write_manifest: bool = True
     seeds: tuple[int, ...] | None = None
     policy_artifacts: dict[str, Path] = field(default_factory=dict)
+    artifact_manifest: Path | None = None
 
     def __post_init__(self) -> None:
         if not self.name:

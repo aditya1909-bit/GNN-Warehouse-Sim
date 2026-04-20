@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from warehouse_sim.agents import RobotState
 from warehouse_sim.environment import WarehouseEnvironment
 from warehouse_sim.graph import GraphFeatures, build_graph_features
 from warehouse_sim.tasks import Task
+from warehouse_sim.utils.battery import battery_enabled, battery_fraction
+
+if TYPE_CHECKING:
+    from warehouse_sim.simulation.models import BatteryRuntimeConfig
 
 
 @dataclass(frozen=True)
@@ -50,6 +55,11 @@ class RobotObservation:
     total_idle_time: float
     total_travel_time: float
     total_travel_distance: float
+    battery_level: float
+    battery_fraction: float
+    total_charging_time: float
+    total_energy_consumed: float
+    total_energy_charged: float
     is_idle: bool
 
 
@@ -106,6 +116,7 @@ class DispatchContext:
     task_observations: tuple[TaskObservation, ...]
     global_observation: GlobalObservation
     congestion_observation: CongestionObservation
+    battery_config: "BatteryRuntimeConfig | None" = None
 
 
 class DispatchContextBuilder:
@@ -129,6 +140,7 @@ class DispatchContextBuilder:
         pending_tasks: tuple[Task, ...],
         congestion_observation: CongestionObservation | None = None,
         execution_model: str = "idealized",
+        battery_config: "BatteryRuntimeConfig | None" = None,
     ) -> DispatchContext:
         """Build the dispatch context for the current simulation time."""
 
@@ -150,7 +162,11 @@ class DispatchContextBuilder:
             )
         )
         robot_observations = tuple(
-            self._build_robot_observation(current_time=current_time, robot=robot)
+            self._build_robot_observation(
+                current_time=current_time,
+                robot=robot,
+                battery_config=battery_config,
+            )
             for robot in sorted(robot_states, key=lambda item: item.spec.robot_id)
         )
         task_observations = tuple(
@@ -179,9 +195,15 @@ class DispatchContextBuilder:
             task_observations=task_observations,
             global_observation=global_observation,
             congestion_observation=congestion_observation or CongestionObservation(execution_model=execution_model),
+            battery_config=battery_config,
         )
 
-    def _build_robot_observation(self, current_time: float, robot: RobotState) -> RobotObservation:
+    def _build_robot_observation(
+        self,
+        current_time: float,
+        robot: RobotState,
+        battery_config: "BatteryRuntimeConfig | None" = None,
+    ) -> RobotObservation:
         return RobotObservation(
             robot_id=robot.spec.robot_id,
             current_node=robot.current_node,
@@ -194,6 +216,15 @@ class DispatchContextBuilder:
             total_idle_time=robot.total_idle_time,
             total_travel_time=robot.total_travel_time,
             total_travel_distance=robot.total_travel_distance,
+            battery_level=robot.battery_level,
+            battery_fraction=(
+                battery_fraction(battery_level=robot.battery_level, battery_config=battery_config)
+                if battery_enabled(battery_config)
+                else 1.0
+            ),
+            total_charging_time=robot.total_charging_time,
+            total_energy_consumed=robot.total_energy_consumed,
+            total_energy_charged=robot.total_energy_charged,
             is_idle=robot.available_time <= current_time,
         )
 

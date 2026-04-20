@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from warehouse_sim.config.models import (
+    BatteryConfig,
     CoordinationConfig,
     ConfigValidationError,
     DemandConfig,
@@ -35,6 +36,7 @@ def load_experiment_config(path: Path) -> ExperimentConfig:
         coordination = raw.get("coordination")
         reporting = raw.get("reporting", {})
         policy_model = raw.get("policy_model")
+        battery = raw.get("battery")
     except KeyError as exc:
         raise ConfigValidationError(f"Missing required config section: {exc.args[0]}") from exc
 
@@ -50,7 +52,12 @@ def load_experiment_config(path: Path) -> ExperimentConfig:
                 layout.get("dropoff_cell", [layout["rows"] - 1, layout["columns"] - 1])
             ),
             staging_cell=_coordinate(layout.get("staging_cell", [layout["rows"] - 1, 0])),
+            charging_cells=tuple(_coordinate(cell) for cell in layout.get("charging_cells", [])),
             blocked_cells=tuple(_coordinate(cell) for cell in layout.get("blocked_cells", [])),
+            obstacle_polygons=tuple(
+                tuple(_point(vertex) for vertex in polygon)
+                for polygon in layout.get("obstacle_polygons", [])
+            ),
             directed_edges=tuple(
                 (_coordinate(edge[0]), _coordinate(edge[1]))
                 for edge in layout.get("directed_edges", [])
@@ -114,6 +121,18 @@ def load_experiment_config(path: Path) -> ExperimentConfig:
             if policy_model.get("artifact_path") is None
             else (path.parent / Path(str(policy_model["artifact_path"]))).resolve(),
         ),
+        battery=None
+        if battery is None
+        else BatteryConfig(
+            enabled=bool(battery.get("enabled", False)),
+            capacity=float(battery.get("capacity", 100.0)),
+            initial_charge_fraction=float(battery.get("initial_charge_fraction", 1.0)),
+            travel_energy_per_distance=float(battery.get("travel_energy_per_distance", 1.0)),
+            service_energy=float(battery.get("service_energy", 0.0)),
+            charge_rate=float(battery.get("charge_rate", 5.0)),
+            dispatch_charge_threshold=float(battery.get("dispatch_charge_threshold", 0.2)),
+            minimum_reserve_fraction=float(battery.get("minimum_reserve_fraction", 0.1)),
+        ),
     )
 
 
@@ -127,3 +146,9 @@ def _optional_float(value: Any) -> float | None:
     if value is None:
         return None
     return float(value)
+
+
+def _point(value: Any) -> tuple[float, float]:
+    if not isinstance(value, list | tuple) or len(value) != 2:
+        raise ConfigValidationError(f"Expected point pair, got {value!r}")
+    return float(value[0]), float(value[1])

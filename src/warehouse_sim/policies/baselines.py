@@ -26,7 +26,29 @@ class FIFODispatchPolicy(DispatchPolicy):
             return None
         robot = sorted(idle_robots, key=lambda item: item.spec.robot_id)[0]
         task = sorted(ready_tasks, key=lambda item: (item.release_time, item.task_id))[0]
-        return DispatchDecision(robot_id=robot.spec.robot_id, task_id=task.task_id)
+        return DispatchDecision.for_task(robot_id=robot.spec.robot_id, task_id=task.task_id)
+
+    def select_assignment_from_context(self, context):  # type: ignore[override]
+        candidates = build_candidate_assignment_observations(context)
+        if not candidates:
+            return None
+        urgent_charge, task_candidates = _split_dispatch_candidates(context, candidates)
+        if urgent_charge:
+            return DispatchDecision.for_charge(
+                robot_id=urgent_charge[0].robot_id,
+                charging_node_id=urgent_charge[0].charging_node_id or "",
+            )
+        if not task_candidates:
+            return None
+        best_candidate = min(
+            task_candidates,
+            key=lambda candidate: (
+                -candidate.feature("task_age"),
+                candidate.task_id or "",
+                candidate.robot_id,
+            ),
+        )
+        return DispatchDecision.for_task(robot_id=best_candidate.robot_id, task_id=best_candidate.task_id or "")
 
 
 class RandomDispatchPolicy(DispatchPolicy):
@@ -47,7 +69,23 @@ class RandomDispatchPolicy(DispatchPolicy):
             return None
         robot = self._rng.choice(sorted(idle_robots, key=lambda item: item.spec.robot_id))
         task = self._rng.choice(sorted(ready_tasks, key=lambda item: (item.release_time, item.task_id)))
-        return DispatchDecision(robot_id=robot.spec.robot_id, task_id=task.task_id)
+        return DispatchDecision.for_task(robot_id=robot.spec.robot_id, task_id=task.task_id)
+
+    def select_assignment_from_context(self, context):  # type: ignore[override]
+        candidates = build_candidate_assignment_observations(context)
+        if not candidates:
+            return None
+        urgent_charge, task_candidates = _split_dispatch_candidates(context, candidates)
+        pool = urgent_charge or task_candidates
+        if not pool:
+            return None
+        chosen = self._rng.choice(pool)
+        if chosen.action_type == "charge":
+            return DispatchDecision.for_charge(
+                robot_id=chosen.robot_id,
+                charging_node_id=chosen.charging_node_id or "",
+            )
+        return DispatchDecision.for_task(robot_id=chosen.robot_id, task_id=chosen.task_id or "")
 
 
 class NearestRobotTaskPolicy(DispatchPolicy):
@@ -81,7 +119,38 @@ class NearestRobotTaskPolicy(DispatchPolicy):
                     best_pair = ranking
 
         assert best_pair is not None
-        return DispatchDecision(robot_id=best_pair[2], task_id=best_pair[3])
+        return DispatchDecision.for_task(robot_id=best_pair[2], task_id=best_pair[3])
+
+    def select_assignment_from_context(self, context):  # type: ignore[override]
+        candidates = build_candidate_assignment_observations(context)
+        if not candidates:
+            return None
+        urgent_charge, task_candidates = _split_dispatch_candidates(context, candidates)
+        if urgent_charge:
+            chosen = min(
+                urgent_charge,
+                key=lambda candidate: (
+                    candidate.feature("travel_to_pickup_time"),
+                    candidate.robot_id,
+                    candidate.charging_node_id or "",
+                ),
+            )
+            return DispatchDecision.for_charge(
+                robot_id=chosen.robot_id,
+                charging_node_id=chosen.charging_node_id or "",
+            )
+        if not task_candidates:
+            return None
+        chosen = min(
+            task_candidates,
+            key=lambda candidate: (
+                candidate.feature("travel_to_pickup_time"),
+                candidate.feature("task_age") * -1.0,
+                candidate.robot_id,
+                candidate.task_id or "",
+            ),
+        )
+        return DispatchDecision.for_task(robot_id=chosen.robot_id, task_id=chosen.task_id or "")
 
 
 class NearestTaskForIdleRobotPolicy(DispatchPolicy):
@@ -108,7 +177,39 @@ class NearestTaskForIdleRobotPolicy(DispatchPolicy):
                 item.task_id,
             ),
         )
-        return DispatchDecision(robot_id=robot.spec.robot_id, task_id=task.task_id)
+        return DispatchDecision.for_task(robot_id=robot.spec.robot_id, task_id=task.task_id)
+
+    def select_assignment_from_context(self, context):  # type: ignore[override]
+        candidates = build_candidate_assignment_observations(context)
+        if not candidates:
+            return None
+        urgent_charge, task_candidates = _split_dispatch_candidates(context, candidates)
+        first_robot_id = min(candidate.robot_id for candidate in candidates)
+        first_robot_charge = [candidate for candidate in urgent_charge if candidate.robot_id == first_robot_id]
+        if first_robot_charge:
+            chosen = min(
+                first_robot_charge,
+                key=lambda candidate: (
+                    candidate.feature("travel_to_pickup_time"),
+                    candidate.charging_node_id or "",
+                ),
+            )
+            return DispatchDecision.for_charge(
+                robot_id=chosen.robot_id,
+                charging_node_id=chosen.charging_node_id or "",
+            )
+        first_robot_tasks = [candidate for candidate in task_candidates if candidate.robot_id == first_robot_id]
+        if not first_robot_tasks:
+            return None
+        chosen = min(
+            first_robot_tasks,
+            key=lambda candidate: (
+                candidate.feature("travel_to_pickup_time"),
+                candidate.feature("task_age") * -1.0,
+                candidate.task_id or "",
+            ),
+        )
+        return DispatchDecision.for_task(robot_id=chosen.robot_id, task_id=chosen.task_id or "")
 
 
 class CongestionAwareNearestRobotTaskPolicy(DispatchPolicy):
@@ -124,8 +225,24 @@ class CongestionAwareNearestRobotTaskPolicy(DispatchPolicy):
         if not candidates:
             return None
 
+        urgent_charge, task_candidates = _split_dispatch_candidates(context, candidates)
+        if urgent_charge:
+            chosen = min(
+                urgent_charge,
+                key=lambda candidate: (
+                    candidate.feature("travel_to_pickup_time"),
+                    candidate.robot_id,
+                    candidate.charging_node_id or "",
+                ),
+            )
+            return DispatchDecision.for_charge(
+                robot_id=chosen.robot_id,
+                charging_node_id=chosen.charging_node_id or "",
+            )
+        if not task_candidates:
+            return None
         best_candidate = min(
-            candidates,
+            task_candidates,
             key=lambda candidate: (
                 candidate.feature("travel_to_pickup_time")
                 + candidate.feature("pickup_to_dropoff_time")
@@ -138,12 +255,31 @@ class CongestionAwareNearestRobotTaskPolicy(DispatchPolicy):
                 ),
                 candidate.feature("task_age") * -1.0,
                 candidate.robot_id,
-                candidate.task_id,
+                candidate.task_id or "",
             ),
         )
-        return DispatchDecision(robot_id=best_candidate.robot_id, task_id=best_candidate.task_id)
+        return DispatchDecision.for_task(robot_id=best_candidate.robot_id, task_id=best_candidate.task_id or "")
 
     def select_assignment(self, idle_robots, ready_tasks, environment):  # type: ignore[override]
         raise RuntimeError(
             "CongestionAwareNearestRobotTaskPolicy requires dispatch contexts and cannot use the legacy selection path."
         )
+
+
+def _split_dispatch_candidates(context, candidates):
+    task_candidates = [candidate for candidate in candidates if candidate.action_type == "task"]
+    if not context.battery_config or not context.battery_config.enabled:
+        return [], task_candidates
+    task_counts_by_robot: dict[str, int] = {}
+    for candidate in task_candidates:
+        task_counts_by_robot[candidate.robot_id] = task_counts_by_robot.get(candidate.robot_id, 0) + 1
+    urgent_charge = [
+        candidate
+        for candidate in candidates
+        if candidate.action_type == "charge"
+        and (
+            candidate.feature("battery_fraction") <= context.battery_config.dispatch_charge_threshold
+            or task_counts_by_robot.get(candidate.robot_id, 0) == 0
+        )
+    ]
+    return urgent_charge, task_candidates

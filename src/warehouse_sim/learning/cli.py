@@ -27,9 +27,8 @@ from warehouse_sim.learning.graph_evaluation import evaluate_graph_dispatch_arti
 from warehouse_sim.learning.graph_fit import GraphDispatchFitConfig, fit_graph_dispatch_model
 from warehouse_sim.learning.linear_fit import GroupedLinearFitConfig, fit_grouped_linear_model
 from warehouse_sim.learning.mlp_fit import GroupedMLPFitConfig, fit_grouped_mlp_model
-from warehouse_sim.learning.integrated_rl import run_integrated_rl_training_from_config
-from warehouse_sim.learning.rl import run_rl_fine_tuning_from_config
 from warehouse_sim.learning.splits import SplitConfig, split_dispatch_observation_dataset
+from warehouse_sim.utils.dependencies import require_dependency
 
 
 def run_offline_training_from_config(config: OfflineTrainingConfig) -> dict[str, Path]:
@@ -286,9 +285,18 @@ def main(argv: Sequence[str] | None = None) -> None:
         )
         print(f"Artifact: {args.artifact}")
     elif args.command == "train-rl":
+        require_dependency("gymnasium", feature="Dispatch RL fine-tuning")
+        require_dependency("torch", feature="Dispatch RL fine-tuning")
+        require_dependency("torch_geometric", feature="Dispatch RL fine-tuning")
+        from warehouse_sim.learning.rl import run_rl_fine_tuning_from_config
+
         written = run_rl_fine_tuning_from_config(load_rl_fine_tuning_config(args.config))
         print(f"RL fine-tuning config: {args.config}")
     else:
+        require_dependency("torch", feature="Integrated RL training")
+        require_dependency("torch_geometric", feature="Integrated RL training")
+        from warehouse_sim.learning.integrated_rl import run_integrated_rl_training_from_config
+
         written = run_integrated_rl_training_from_config(load_integrated_rl_training_config(args.config))
         print(f"Integrated RL training config: {args.config}")
 

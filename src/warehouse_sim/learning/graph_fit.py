@@ -100,7 +100,7 @@ def fit_graph_dispatch_model(
     state_dict_path = output_dir / f"{artifact_name}.pt"
     torch.save(model.state_dict(), state_dict_path)
     artifact = DispatchModelArtifact(
-        artifact_version=1,
+        artifact_version=2,
         model_type="pyg_graph_dispatch",
         objective="dispatch_group_softmax_cross_entropy",
         feature_names=config.candidate_feature_names,

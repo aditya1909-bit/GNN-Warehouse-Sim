@@ -21,6 +21,11 @@ def compute_simulation_metrics(result: "SimulationResult") -> SimulationMetrics:
     travel_distances = [execution.travel_to_pickup_distance + execution.travel_to_dropoff_distance for execution in result.executions]
     congestion_delays = [execution.congestion_delay_time for execution in result.executions]
     blocked_traversal_events_total = sum(execution.blocked_traversal_events for execution in result.executions)
+    total_energy_consumed = sum(robot.total_energy_consumed for robot in result.robot_states)
+    total_energy_charged = sum(robot.total_energy_charged for robot in result.robot_states)
+    total_charging_time = sum(robot.total_charging_time for robot in result.robot_states)
+    charging_events_total = sum(robot.charging_events for robot in result.robot_states)
+    battery_depletion_incidents_total = sum(robot.battery_depletion_events for robot in result.robot_states)
 
     makespan = result.finished_at - result.started_at
     robot_metrics = tuple(
@@ -48,6 +53,11 @@ def compute_simulation_metrics(result: "SimulationResult") -> SimulationMetrics:
             sum(congestion_delays) / len(congestion_delays) if congestion_delays else None
         ),
         blocked_traversal_events_total=blocked_traversal_events_total,
+        total_energy_consumed=total_energy_consumed,
+        total_energy_charged=total_energy_charged,
+        total_charging_time=total_charging_time,
+        charging_events_total=charging_events_total,
+        battery_depletion_incidents_total=battery_depletion_incidents_total,
         average_queue_length=_average_ready_queue_length(result.queue_snapshots),
         throughput_per_hour=(len(result.executions) / makespan * 3600.0 if makespan > 0 else 0.0),
         makespan=makespan,
@@ -75,6 +85,12 @@ def _build_robot_metrics(
         travel_distance=robot.total_travel_distance,
         congestion_delay_time=robot.total_congestion_delay,
         blocked_traversal_events=robot.blocked_traversal_events,
+        battery_level=robot.battery_level,
+        total_energy_consumed=robot.total_energy_consumed,
+        total_energy_charged=robot.total_energy_charged,
+        total_charging_time=robot.total_charging_time,
+        charging_events=robot.charging_events,
+        battery_depletion_events=robot.battery_depletion_events,
     )
 
 

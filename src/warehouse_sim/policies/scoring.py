@@ -4,15 +4,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from math import isfinite
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
-import torch
 
 from warehouse_sim.candidate_features import SUPPORTED_CANDIDATE_FEATURES
 from warehouse_sim.graph import WarehouseEdge
 from warehouse_sim.learning.artifacts import DispatchModelArtifact
 from warehouse_sim.learning.graph_data import build_graph_dispatch_example_from_context
-from warehouse_sim.learning.graph_model import GraphDispatchScorer
 from warehouse_sim.policies.base import DispatchDecision, DispatchPolicy
 from warehouse_sim.policies.observation import (
     CongestionObservation,
@@ -20,6 +19,18 @@ from warehouse_sim.policies.observation import (
     RobotObservation,
     TaskObservation,
 )
+from warehouse_sim.utils.battery import (
+    battery_enabled,
+    estimate_charge_action,
+    estimate_task_action,
+    nearest_charging_option,
+)
+from warehouse_sim.utils.dependencies import require_dependency
+
+if TYPE_CHECKING:
+    from warehouse_sim.learning.graph_model import GraphDispatchScorer
+else:
+    GraphDispatchScorer = Any
 
 
 class CandidateScoringError(ValueError):
@@ -31,14 +42,22 @@ class CandidateAssignmentObservation:
     """Flattened candidate robot-task features at a dispatch decision."""
 
     robot_id: str
-    task_id: str
+    action_type: str
+    task_id: str | None
+    charging_node_id: str | None
     robot_current_node: str
     robot_current_zone: str | None
-    task_pickup_node: str
-    task_dropoff_node: str
+    task_pickup_node: str | None
+    task_dropoff_node: str | None
     task_source_zone: str | None
     task_destination_zone: str | None
     feature_values: dict[str, float]
+
+    @property
+    def candidate_id(self) -> str:
+        if self.action_type == "charge":
+            return f"charge::{self.charging_node_id or ''}"
+        return self.task_id or ""
 
     def feature(self, name: str) -> float:
         """Return a scalar feature value by name."""
@@ -82,7 +101,7 @@ class LinearScoringDispatchPolicy(DispatchPolicy):
             dtype=float,
         )
         best_candidate = _select_best_candidate(candidates, scores)
-        return DispatchDecision(robot_id=best_candidate.robot_id, task_id=best_candidate.task_id)
+        return _dispatch_decision_for_candidate(best_candidate)
 
     def select_assignment(self, idle_robots, ready_tasks, environment):  # type: ignore[override]
         raise CandidateScoringError(
@@ -111,7 +130,7 @@ class ArtifactScoringDispatchPolicy(DispatchPolicy):
         )
         scores = self._artifact.score_matrix(feature_matrix)
         best_candidate = _select_best_candidate(candidates, scores)
-        return DispatchDecision(robot_id=best_candidate.robot_id, task_id=best_candidate.task_id)
+        return _dispatch_decision_for_candidate(best_candidate)
 
     def select_assignment(self, idle_robots, ready_tasks, environment):  # type: ignore[override]
         raise CandidateScoringError(
@@ -142,6 +161,7 @@ class GraphDispatchArtifactPolicy(DispatchPolicy):
         if not candidates:
             return None
 
+        torch = require_dependency("torch", feature="trained graph-dispatch policy inference")
         example = build_graph_dispatch_example_from_context(
             context,
             dispatch_index=0,
@@ -159,7 +179,7 @@ class GraphDispatchArtifactPolicy(DispatchPolicy):
             )
         scores = logits.detach().cpu().numpy()
         best_candidate = _select_best_candidate(candidates, scores)
-        return DispatchDecision(robot_id=best_candidate.robot_id, task_id=best_candidate.task_id)
+        return _dispatch_decision_for_candidate(best_candidate)
 
     def select_assignment(self, idle_robots, ready_tasks, environment):  # type: ignore[override]
         raise CandidateScoringError(
@@ -183,6 +203,15 @@ def build_candidate_assignment_observations(
 
     for robot_state in context.idle_robots:
         robot_observation = robot_by_id[robot_state.spec.robot_id]
+        charge_candidate = _build_charge_candidate(
+            context=context,
+            robot_state=robot_state,
+            robot_observation=robot_observation,
+            node_feature_by_id=node_feature_by_id,
+            arc_feature_by_edge=arc_feature_by_edge,
+        )
+        if charge_candidate is not None:
+            candidates.append(charge_candidate)
         for task in context.ready_tasks:
             task_observation = task_by_id[task.task_id]
             pickup_path = context.environment.shortest_path(
@@ -227,10 +256,25 @@ def build_candidate_assignment_observations(
                 ),
                 speed_multiplier=robot_state.spec.speed_multiplier,
             )
+            battery_estimate = estimate_task_action(
+                context.environment,
+                robot_node=robot_state.current_node,
+                pickup_node=task.pickup_node,
+                dropoff_node=task.dropoff_node,
+                battery_level=robot_state.battery_level,
+                speed_multiplier=robot_state.spec.speed_multiplier,
+                battery_config=context.battery_config,
+            )
+            if battery_enabled(context.battery_config) and (
+                battery_estimate is None or not battery_estimate.charger_reachable_after_action
+            ):
+                continue
             candidates.append(
                 CandidateAssignmentObservation(
                     robot_id=robot_state.spec.robot_id,
+                    action_type="task",
                     task_id=task.task_id,
+                    charging_node_id=None,
                     robot_current_node=robot_observation.current_node,
                     robot_current_zone=robot_observation.current_zone,
                     task_pickup_node=task_observation.pickup_node,
@@ -253,6 +297,8 @@ def build_candidate_assignment_observations(
                         estimated_dropoff_delay=estimated_dropoff_delay,
                         estimated_pickup_blocked_segments=estimated_pickup_blocked_segments,
                         estimated_dropoff_blocked_segments=estimated_dropoff_blocked_segments,
+                        battery_estimate=battery_estimate,
+                        is_charge_action=False,
                     ),
                 )
             )
@@ -272,7 +318,7 @@ def validate_candidate_weights(weights: dict[str, float]) -> None:
 def _candidate_feature_values(
     context: DispatchContext,
     robot_observation: RobotObservation,
-    task_observation: TaskObservation,
+    task_observation: TaskObservation | None,
     travel_to_pickup_time: float,
     travel_to_pickup_distance: float,
     pickup_path: tuple[str, ...],
@@ -285,9 +331,21 @@ def _candidate_feature_values(
     estimated_dropoff_delay: float,
     estimated_pickup_blocked_segments: int,
     estimated_dropoff_blocked_segments: int,
+    battery_estimate,
+    is_charge_action: bool,
 ) -> dict[str, float]:
-    pickup_node_features = node_feature_by_id[task_observation.pickup_node]
-    dropoff_node_features = node_feature_by_id[task_observation.dropoff_node]
+    pickup_node_id = (
+        task_observation.pickup_node
+        if task_observation is not None
+        else pickup_path[-1]
+    )
+    dropoff_node_id = (
+        task_observation.dropoff_node
+        if task_observation is not None
+        else (dropoff_path[-1] if dropoff_path else pickup_path[-1])
+    )
+    pickup_node_features = node_feature_by_id[pickup_node_id]
+    dropoff_node_features = node_feature_by_id[dropoff_node_id]
     pickup_path_features = _path_structure_features(
         path_nodes=pickup_path,
         path_edges=pickup_edges,
@@ -303,8 +361,12 @@ def _candidate_feature_values(
     return {
         "travel_to_pickup_time": travel_to_pickup_time,
         "travel_to_pickup_distance": travel_to_pickup_distance,
-        "pickup_to_dropoff_time": task_observation.pickup_to_dropoff_travel_time,
-        "pickup_to_dropoff_distance": task_observation.pickup_to_dropoff_distance,
+        "pickup_to_dropoff_time": (
+            0.0 if task_observation is None else task_observation.pickup_to_dropoff_travel_time
+        ),
+        "pickup_to_dropoff_distance": (
+            0.0 if task_observation is None else task_observation.pickup_to_dropoff_distance
+        ),
         "pickup_node_inbound_degree": float(pickup_node_features.inbound_degree),
         "pickup_node_outbound_degree": float(pickup_node_features.outbound_degree),
         "dropoff_node_inbound_degree": float(dropoff_node_features.inbound_degree),
@@ -317,9 +379,9 @@ def _candidate_feature_values(
         "pickup_to_dropoff_max_transit_count": dropoff_path_features["max_transit_count"],
         "pickup_to_dropoff_mean_arc_traversal_count": dropoff_path_features["mean_arc_traversal_count"],
         "pickup_to_dropoff_max_arc_traversal_count": dropoff_path_features["max_arc_traversal_count"],
-        "task_age": task_observation.age,
-        "task_priority": float(task_observation.priority),
-        "task_service_time_estimate": task_observation.service_time_estimate,
+        "task_age": 0.0 if task_observation is None else task_observation.age,
+        "task_priority": 0.0 if task_observation is None else float(task_observation.priority),
+        "task_service_time_estimate": 0.0 if task_observation is None else task_observation.service_time_estimate,
         "robot_speed_multiplier": robot_observation.speed_multiplier,
         "robot_completed_task_count": float(robot_observation.completed_task_count),
         "robot_total_busy_time": robot_observation.total_busy_time,
@@ -339,6 +401,15 @@ def _candidate_feature_values(
         "estimated_dropoff_congestion_delay": estimated_dropoff_delay,
         "estimated_pickup_blocked_segments": float(estimated_pickup_blocked_segments),
         "estimated_dropoff_blocked_segments": float(estimated_dropoff_blocked_segments),
+        "battery_fraction": robot_observation.battery_fraction,
+        "estimated_action_energy": 0.0 if battery_estimate is None else battery_estimate.estimated_action_energy,
+        "post_action_battery_fraction": 1.0 if battery_estimate is None else battery_estimate.post_action_battery_fraction,
+        "charger_reachable_after_action": (
+            1.0
+            if battery_estimate is None or battery_estimate.charger_reachable_after_action
+            else 0.0
+        ),
+        "is_charge_action": 1.0 if is_charge_action else 0.0,
     }
 
 
@@ -385,10 +456,106 @@ def _select_best_candidate(
             -candidates[index].feature("travel_to_pickup_time"),
             candidates[index].feature("task_age"),
             _descending_string_key(candidates[index].robot_id),
-            _descending_string_key(candidates[index].task_id),
+            _descending_string_key(candidates[index].candidate_id),
         ),
     )
     return candidates[best_index]
+
+
+def _build_charge_candidate(
+    *,
+    context: DispatchContext,
+    robot_state,
+    robot_observation: RobotObservation,
+    node_feature_by_id: dict[str, object],
+    arc_feature_by_edge: dict[tuple[str, str], object],
+) -> CandidateAssignmentObservation | None:
+    if not battery_enabled(context.battery_config):
+        return None
+    charge_option = nearest_charging_option(
+        context.environment,
+        source_node=robot_state.current_node,
+        speed_multiplier=robot_state.spec.speed_multiplier,
+        battery_config=context.battery_config,
+    )
+    if charge_option is None:
+        return None
+    battery_estimate = estimate_charge_action(
+        context.environment,
+        robot_node=robot_state.current_node,
+        charging_node_id=charge_option.charging_node_id,
+        battery_level=robot_state.battery_level,
+        speed_multiplier=robot_state.spec.speed_multiplier,
+        battery_config=context.battery_config,
+    )
+    if not battery_estimate.charger_reachable_after_action:
+        return None
+    if (
+        charge_option.charging_node_id == robot_state.current_node
+        and robot_observation.battery_fraction >= 1.0 - 1e-9
+    ):
+        return None
+    pickup_path = context.environment.shortest_path(
+        robot_state.current_node,
+        charge_option.charging_node_id,
+        weight="travel_time",
+    )
+    pickup_edges = context.environment.shortest_path_edges(
+        robot_state.current_node,
+        charge_option.charging_node_id,
+        weight="travel_time",
+    )
+    estimated_pickup_delay, estimated_pickup_blocked_segments = _estimate_congestion(
+        path_edges=pickup_edges,
+        path_nodes=pickup_path,
+        congestion_observation=context.congestion_observation,
+        start_time=context.current_time,
+        speed_multiplier=robot_state.spec.speed_multiplier,
+    )
+    charge_node = charge_option.charging_node_id
+    charge_zone = context.environment.zone_for_node(charge_node)
+    return CandidateAssignmentObservation(
+        robot_id=robot_state.spec.robot_id,
+        action_type="charge",
+        task_id=None,
+        charging_node_id=charge_node,
+        robot_current_node=robot_observation.current_node,
+        robot_current_zone=robot_observation.current_zone,
+        task_pickup_node=charge_node,
+        task_dropoff_node=charge_node,
+        task_source_zone=charge_zone,
+        task_destination_zone=charge_zone,
+        feature_values=_candidate_feature_values(
+            context=context,
+            robot_observation=robot_observation,
+            task_observation=None,
+            travel_to_pickup_time=charge_option.travel_time,
+            travel_to_pickup_distance=charge_option.distance,
+            pickup_path=pickup_path,
+            pickup_edges=pickup_edges,
+            dropoff_path=(charge_node,),
+            dropoff_edges=(),
+            node_feature_by_id=node_feature_by_id,
+            arc_feature_by_edge=arc_feature_by_edge,
+            estimated_pickup_delay=estimated_pickup_delay,
+            estimated_dropoff_delay=0.0,
+            estimated_pickup_blocked_segments=estimated_pickup_blocked_segments,
+            estimated_dropoff_blocked_segments=0,
+            battery_estimate=battery_estimate,
+            is_charge_action=True,
+        ),
+    )
+
+
+def _dispatch_decision_for_candidate(candidate: CandidateAssignmentObservation) -> DispatchDecision:
+    if candidate.action_type == "charge":
+        assert candidate.charging_node_id is not None
+        return DispatchDecision.for_charge(
+            robot_id=candidate.robot_id,
+            charging_node_id=candidate.charging_node_id,
+        )
+    assert candidate.task_id is not None
+    return DispatchDecision.for_task(robot_id=candidate.robot_id, task_id=candidate.task_id)
 
 
 def _estimate_congestion(

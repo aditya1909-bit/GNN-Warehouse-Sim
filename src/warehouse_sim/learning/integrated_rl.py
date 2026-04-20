@@ -230,6 +230,7 @@ class IntegratedCoordinationRLEnv:
         self._collision_events: list[CollisionEventRecord] = []
         self._queue_snapshots = []
         self._executions = []
+        self._charging_executions = []
 
     def reset(self) -> IntegratedObservation:
         self._environment, self._tasks, self._robots, self._simulation_config = build_experiment_inputs(self._experiment_config)
@@ -248,6 +249,7 @@ class IntegratedCoordinationRLEnv:
         self._collision_events = []
         self._queue_snapshots = []
         self._executions = []
+        self._charging_executions = []
         _record_queue_snapshot(self._queue_snapshots, 0.0, self._tasks, self._released_task_ids, self._completed_task_ids, self._active_plans)
         _release_ready_tasks(self._tasks, 0.0, self._released_task_ids)
         return self._observation()
@@ -278,6 +280,7 @@ class IntegratedCoordinationRLEnv:
                     robot_id=robot.spec.robot_id,
                     macro_type=candidate.macro_type,
                     task_id=candidate.task_id,
+                    charging_node=candidate.charging_node,
                     route_nodes=candidate.route_nodes,
                     route_edges=tuple(f"{source}->{target}" for source, target in candidate.route_edges),
                     estimated_completion_time=candidate.estimated_completion_time,
@@ -285,9 +288,15 @@ class IntegratedCoordinationRLEnv:
                 )
             )
             decision_index += 1
-            if candidate.macro_type != "task_route" or candidate.task_id is None or robot.spec.robot_id in self._active_plans:
+            if candidate.macro_type not in {"task_route", "charge_route"}:
                 continue
-            task = next(task for task in self._tasks if task.task_id == candidate.task_id)
+            if robot.spec.robot_id in self._active_plans:
+                continue
+            task = None if candidate.task_id is None else next(task for task in self._tasks if task.task_id == candidate.task_id)
+            service_time = candidate.service_time_estimate
+            if candidate.macro_type == "charge_route":
+                if self._simulation_config.battery is None or candidate.charging_node is None:
+                    continue
             planned = plan_motion_candidate(
                 self._environment,
                 robot_id=robot.spec.robot_id,
@@ -295,16 +304,16 @@ class IntegratedCoordinationRLEnv:
                 speed_multiplier=robot.spec.speed_multiplier,
                 occupancy_table=self._occupancy,
                 candidate=candidate,
-                service_time=task.service_time_estimate,
+                service_time=service_time,
                 motion_model=self._simulation_config.coordination.motion_model,  # type: ignore[union-attr]
             )
-            if planned is None or planned.pickup_arrival_time is None:
+            if planned is None:
                 self._planner_plans.append(
                     PlannerPlanRecord(
                         plan_index=plan_index,
                         plan_time=self._current_time,
                         robot_id=robot.spec.robot_id,
-                        task_id=task.task_id,
+                        task_id=None if task is None else task.task_id,
                         priority_rank=robot_index,
                         path_nodes=candidate.route_nodes,
                         path_edges=tuple(f"{source}->{target}" for source, target in candidate.route_edges),
@@ -319,8 +328,10 @@ class IntegratedCoordinationRLEnv:
             self._occupancy.reserve(planned.traversals)
             for node_id, time in planned.reserved_node_times:
                 self._occupancy.reserve_node_time(node_id=node_id, time=time, robot_id=robot.spec.robot_id)
-            self._claimed_task_ids.add(task.task_id)
+            if task is not None:
+                self._claimed_task_ids.add(task.task_id)
             self._active_plans[robot.spec.robot_id] = _ActivePlan(
+                action_type=candidate.macro_type,
                 task=task,
                 assigned_at=self._current_time,
                 pickup_arrival_time=planned.pickup_arrival_time,
@@ -328,6 +339,8 @@ class IntegratedCoordinationRLEnv:
                 traversals=planned.traversals,
                 blocked_events=planned.blocked_events,
                 wait_time=planned.wait_time,
+                charging_node_id=candidate.charging_node,
+                energy_before=robot.battery_level,
             )
             robot.available_time = planned.completion_time
             self._planner_plans.append(
@@ -335,7 +348,7 @@ class IntegratedCoordinationRLEnv:
                     plan_index=plan_index,
                     plan_time=self._current_time,
                     robot_id=robot.spec.robot_id,
-                    task_id=task.task_id,
+                    task_id=None if task is None else task.task_id,
                     priority_rank=robot_index,
                     path_nodes=planned.route_nodes,
                     path_edges=tuple(f"{traversal.source_id}->{traversal.target_id}" for traversal in planned.traversals),
@@ -346,7 +359,8 @@ class IntegratedCoordinationRLEnv:
                 )
             )
             plan_index += 1
-            used_tasks.add(task.task_id)
+            if task is not None:
+                used_tasks.add(task.task_id)
         for event in _detect_motion_collisions(
             traversals=tuple(traversal for plan in self._active_plans.values() for traversal in plan.traversals),
             config=self._simulation_config,
@@ -366,6 +380,7 @@ class IntegratedCoordinationRLEnv:
             current_time=self._current_time,
             tasks=self._tasks,
             released_task_ids=self._released_task_ids,
+            completed_task_ids=self._completed_task_ids,
             robot_states=self._robot_states,
             next_replan_time=self._next_replan_time,
             config=self._simulation_config,
@@ -381,7 +396,10 @@ class IntegratedCoordinationRLEnv:
                 robot_states=self._robot_states,
                 active_plans=self._active_plans,
                 executions=self._executions,
+                charging_executions=self._charging_executions,
                 completed_task_ids=self._completed_task_ids,
+                environment=self._environment,
+                battery_config=self._simulation_config.battery,
             )
             _record_queue_snapshot(
                 self._queue_snapshots,
@@ -432,7 +450,10 @@ class IntegratedCoordinationRLEnv:
             robot_states=self._robot_states,
             active_plans=self._active_plans,
             executions=self._executions,
+            charging_executions=self._charging_executions,
             completed_task_ids=self._completed_task_ids,
+            environment=self._environment,
+            battery_config=self._simulation_config.battery,
         )
         self._current_time = finished_at
 
@@ -451,6 +472,7 @@ class IntegratedCoordinationRLEnv:
             unassigned_tasks=tuple(task for task in self._tasks if task.task_id not in self._completed_task_ids),
             queue_snapshots=tuple(self._queue_snapshots),
             metrics=None,  # type: ignore[arg-type]
+            charging_executions=tuple(self._charging_executions),
             robot_trajectories=(),
             macro_decisions=tuple(self._macro_decisions),
             collision_events=tuple(self._collision_events),

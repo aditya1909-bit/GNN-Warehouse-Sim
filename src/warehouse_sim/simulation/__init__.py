@@ -1,6 +1,8 @@
 """Simulation engine and result models for the warehouse simulator."""
 
 from warehouse_sim.simulation.models import (
+    BatteryRuntimeConfig,
+    ChargingExecution,
     CoordinationMode,
     CoordinationRuntimeConfig,
     DispatchArcObservationRecord,
@@ -48,6 +50,8 @@ __all__ = [
     "DispatchArcObservationRecord",
     "DispatchNodeObservationRecord",
     "DispatchTraceRecord",
+    "BatteryRuntimeConfig",
+    "ChargingExecution",
     "CoordinationMode",
     "CoordinationRuntimeConfig",
     "ExecutionModel",

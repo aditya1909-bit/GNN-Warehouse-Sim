@@ -17,6 +17,7 @@ from warehouse_sim.policies import (
 )
 from warehouse_sim.simulation.execution import ResourceReservationTable
 from warehouse_sim.simulation.models import (
+    ChargingExecution,
     DispatchTraceRecord,
     ExecutionModel,
     QueueSnapshot,
@@ -25,6 +26,7 @@ from warehouse_sim.simulation.models import (
     TaskExecution,
 )
 from warehouse_sim.tasks import Task, TaskQueue
+from warehouse_sim.utils.battery import battery_enabled, estimate_charge_action, travel_energy
 
 
 def run_simulation(
@@ -49,10 +51,12 @@ def run_simulation(
 
     current_time = 0.0
     executions: list[TaskExecution] = []
+    charging_executions: list[ChargingExecution] = []
     dispatch_traces: list[DispatchTraceRecord] = []
     dispatch_node_observations = []
     dispatch_arc_observations = []
     snapshots: list[QueueSnapshot] = []
+    dispatch_index = 0
     _record_snapshot(current_time, queue, robot_states, executions, snapshots)
 
     while True:
@@ -67,38 +71,55 @@ def run_simulation(
         ready_tasks = context.ready_tasks
         idle_robots = context.idle_robots
 
-        while ready_tasks and idle_robots:
+        while idle_robots:
             decision = dispatch_policy.select_assignment_from_context(context)
             if decision is None:
                 break
 
-            dispatch_traces.extend(_build_dispatch_trace_records(context, decision, len(executions)))
+            dispatch_traces.extend(_build_dispatch_trace_records(context, decision, dispatch_index))
             dispatch_node_observations.extend(
                 build_dispatch_node_observation_records(
                     context=context,
-                    dispatch_index=len(executions),
+                    dispatch_index=dispatch_index,
                     decision=decision,
                 )
             )
             dispatch_arc_observations.extend(
                 build_dispatch_arc_observation_records(
                     context=context,
-                    dispatch_index=len(executions),
+                    dispatch_index=dispatch_index,
                 )
             )
+            dispatch_index += 1
             robot = _robot_by_id(robot_states, decision.robot_id)
-            task = _task_by_id(ready_tasks, decision.task_id)
-            queue.remove_task(task.task_id)
-            executions.append(
-                _assign_task(
-                    current_time=current_time,
-                    environment=environment,
-                    robot=robot,
-                    task=task,
-                    execution_model=config.execution_model,
-                    reservation_table=reservation_table,
+            if decision.action_type == "charge":
+                assert decision.charging_node_id is not None
+                charging_executions.append(
+                    _assign_charge(
+                        current_time=current_time,
+                        environment=environment,
+                        robot=robot,
+                        charging_node_id=decision.charging_node_id,
+                        execution_model=config.execution_model,
+                        reservation_table=reservation_table,
+                        battery_config=config.battery,
+                    )
                 )
-            )
+            else:
+                assert decision.task_id is not None
+                task = _task_by_id(ready_tasks, decision.task_id)
+                queue.remove_task(task.task_id)
+                executions.append(
+                    _assign_task(
+                        current_time=current_time,
+                        environment=environment,
+                        robot=robot,
+                        task=task,
+                        execution_model=config.execution_model,
+                        reservation_table=reservation_table,
+                        battery_config=config.battery,
+                    )
+                )
             context = _build_dispatch_context(
                 context_builder=context_builder,
                 queue=queue,
@@ -135,6 +156,7 @@ def run_simulation(
         unassigned_tasks=unassigned_tasks,
         queue_snapshots=tuple(snapshots),
         metrics=None,  # type: ignore[arg-type]
+        charging_executions=tuple(charging_executions),
     )
     metrics = compute_simulation_metrics(result)
     return SimulationResult(
@@ -150,6 +172,7 @@ def run_simulation(
         unassigned_tasks=result.unassigned_tasks,
         queue_snapshots=result.queue_snapshots,
         metrics=metrics,
+        charging_executions=result.charging_executions,
     )
 
 
@@ -160,6 +183,7 @@ def _assign_task(
     task: Task,
     execution_model: ExecutionModel,
     reservation_table: ResourceReservationTable,
+    battery_config=None,
 ) -> TaskExecution:
     if current_time > robot.available_time:
         robot.total_idle_time += current_time - robot.available_time
@@ -188,6 +212,14 @@ def _assign_task(
     robot.available_time = completion_time
     robot.current_node = task.dropoff_node
     robot.completed_task_ids.append(task.task_id)
+    if battery_enabled(battery_config):
+        consumed = travel_energy(travel_to_pickup.distance + travel_to_dropoff.distance, battery_config) + float(
+            battery_config.service_energy
+        )
+        robot.total_energy_consumed += consumed
+        robot.battery_level = max(robot.battery_level - consumed, 0.0)
+        if robot.battery_level <= 1e-9:
+            robot.battery_depletion_events += 1
 
     return TaskExecution(
         task_id=task.task_id,
@@ -219,6 +251,70 @@ def _assign_task(
     )
 
 
+def _assign_charge(
+    current_time: float,
+    environment: WarehouseEnvironment,
+    robot: RobotState,
+    charging_node_id: str,
+    execution_model: ExecutionModel,
+    reservation_table: ResourceReservationTable,
+    battery_config,
+) -> ChargingExecution:
+    if current_time > robot.available_time:
+        robot.total_idle_time += current_time - robot.available_time
+    if not battery_enabled(battery_config):
+        raise ValueError("Charge actions require battery config to be enabled.")
+    battery_estimate = estimate_charge_action(
+        environment,
+        robot_node=robot.current_node,
+        charging_node_id=charging_node_id,
+        battery_level=robot.battery_level,
+        speed_multiplier=robot.spec.speed_multiplier,
+        battery_config=battery_config,
+    )
+    charge_duration = battery_estimate.charge_duration_to_full or 0.0
+    execution = reservation_table.execute_charge(
+        environment=environment,
+        execution_model=execution_model,
+        current_time=current_time,
+        start_node=robot.current_node,
+        charging_node=charging_node_id,
+        charge_duration=charge_duration,
+        speed_multiplier=robot.spec.speed_multiplier,
+    )
+    energy_before = robot.battery_level
+    energy_after_travel = max(energy_before - battery_estimate.estimated_action_energy, 0.0)
+    energy_after = float(battery_config.capacity)
+
+    robot.total_busy_time += execution.completion_time - current_time
+    robot.total_travel_distance += execution.travel_to_charger.distance
+    robot.total_travel_time += execution.travel_to_charger.realized_travel_time
+    robot.total_congestion_delay += execution.travel_to_charger.wait_time + execution.waiting_time
+    robot.blocked_traversal_events += execution.travel_to_charger.blocked_events
+    robot.total_energy_consumed += battery_estimate.estimated_action_energy
+    robot.total_energy_charged += max(energy_after - energy_after_travel, 0.0)
+    robot.total_charging_time += execution.charge_duration
+    robot.charging_events += 1
+    robot.available_time = execution.completion_time
+    robot.current_node = charging_node_id
+    robot.battery_level = energy_after
+
+    return ChargingExecution(
+        robot_id=robot.spec.robot_id,
+        charging_node_id=charging_node_id,
+        started_at=current_time,
+        arrival_time=execution.arrival_time,
+        charging_start_time=execution.charging_start_time,
+        completion_time=execution.completion_time,
+        travel_time=execution.travel_to_charger.realized_travel_time,
+        travel_distance=execution.travel_to_charger.distance,
+        charge_duration=execution.charge_duration,
+        waiting_time=execution.waiting_time,
+        energy_before=energy_before,
+        energy_after=energy_after,
+    )
+
+
 def _eligible_ready_tasks(
     queue: TaskQueue,
     current_time: float,
@@ -247,6 +343,7 @@ def _build_dispatch_context(
         pending_tasks=pending_tasks,
         congestion_observation=reservation_table.snapshot(current_time),
         execution_model=config.execution_model.value,
+        battery_config=config.battery,
     )
 
 
@@ -306,16 +403,30 @@ def _build_dispatch_trace_records(
     dispatch_index: int,
 ) -> list[DispatchTraceRecord]:
     traces: list[DispatchTraceRecord] = []
+    robot_by_id = {
+        robot.robot_id: robot
+        for robot in context.robot_observations
+    }
     for candidate in build_candidate_assignment_observations(context):
+        robot_observation = robot_by_id[candidate.robot_id]
         traces.append(
             DispatchTraceRecord(
                 dispatch_index=dispatch_index,
                 decision_time=context.current_time,
                 selected_robot_id=decision.robot_id,
-                selected_task_id=decision.task_id,
+                selected_action_type=decision.action_type,
+                selected_task_id=decision.task_id or "",
+                selected_charging_node_id=decision.charging_node_id or "",
                 candidate_robot_id=candidate.robot_id,
-                candidate_task_id=candidate.task_id,
-                is_selected=(candidate.robot_id == decision.robot_id and candidate.task_id == decision.task_id),
+                candidate_action_type=candidate.action_type,
+                candidate_task_id=candidate.task_id or "",
+                candidate_charging_node_id=candidate.charging_node_id or "",
+                is_selected=(
+                    candidate.robot_id == decision.robot_id
+                    and candidate.action_type == decision.action_type
+                    and candidate.task_id == decision.task_id
+                    and candidate.charging_node_id == decision.charging_node_id
+                ),
                 robot_current_node=candidate.robot_current_node,
                 robot_current_zone=candidate.robot_current_zone,
                 robot_speed_multiplier=candidate.feature("robot_speed_multiplier"),
@@ -324,12 +435,17 @@ def _build_dispatch_trace_records(
                 robot_total_idle_time=candidate.feature("robot_total_idle_time"),
                 robot_total_travel_time=candidate.feature("robot_total_travel_time"),
                 robot_total_travel_distance=candidate.feature("robot_total_travel_distance"),
+                robot_battery_level=robot_observation.battery_level,
+                robot_battery_fraction=robot_observation.battery_fraction,
+                robot_total_charging_time=robot_observation.total_charging_time,
+                robot_total_energy_consumed=robot_observation.total_energy_consumed,
+                robot_total_energy_charged=robot_observation.total_energy_charged,
                 task_release_time=context.current_time - candidate.feature("task_age"),
                 task_age=candidate.feature("task_age"),
                 task_priority=int(candidate.feature("task_priority")),
                 task_service_time_estimate=candidate.feature("task_service_time_estimate"),
-                task_pickup_node=candidate.task_pickup_node,
-                task_dropoff_node=candidate.task_dropoff_node,
+                task_pickup_node=candidate.task_pickup_node or "",
+                task_dropoff_node=candidate.task_dropoff_node or "",
                 task_source_zone=candidate.task_source_zone,
                 task_destination_zone=candidate.task_destination_zone,
                 travel_to_pickup_time=candidate.feature("travel_to_pickup_time"),
@@ -374,6 +490,11 @@ def _build_dispatch_trace_records(
                 estimated_dropoff_congestion_delay=candidate.feature("estimated_dropoff_congestion_delay"),
                 estimated_pickup_blocked_segments=int(candidate.feature("estimated_pickup_blocked_segments")),
                 estimated_dropoff_blocked_segments=int(candidate.feature("estimated_dropoff_blocked_segments")),
+                battery_fraction=candidate.feature("battery_fraction"),
+                estimated_action_energy=candidate.feature("estimated_action_energy"),
+                post_action_battery_fraction=candidate.feature("post_action_battery_fraction"),
+                charger_reachable_after_action=candidate.feature("charger_reachable_after_action"),
+                is_charge_action=candidate.feature("is_charge_action"),
             )
         )
     return traces

@@ -25,7 +25,7 @@ def test_evaluate_dispatch_model_computes_group_ranking_metrics(tmp_path: Path) 
 
     dataset = load_dispatch_observation_dataset(path, feature_names=("travel_to_pickup_time", "task_age"))
     artifact = DispatchModelArtifact(
-        artifact_version=1,
+        artifact_version=2,
         model_type="grouped_linear",
         objective="dispatch_group_softmax_cross_entropy",
         feature_names=("travel_to_pickup_time", "task_age"),
@@ -52,9 +52,13 @@ def _row(
         "dispatch_index": dispatch_index,
         "decision_time": float(dispatch_index),
         "selected_robot_id": "selected_robot",
+        "selected_action_type": "task",
         "selected_task_id": "selected_task",
+        "selected_charging_node_id": "",
         "candidate_robot_id": candidate_robot_id,
+        "candidate_action_type": "task",
         "candidate_task_id": candidate_task_id,
+        "candidate_charging_node_id": "",
         "is_selected": is_selected,
         "robot_current_node": "r0_c0",
         "robot_current_zone": "staging_zone",

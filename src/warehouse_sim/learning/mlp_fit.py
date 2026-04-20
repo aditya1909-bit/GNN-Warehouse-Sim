@@ -135,7 +135,7 @@ def fit_grouped_mlp_model(
 
     best_hidden_weights, best_hidden_bias, best_output_weights, best_output_bias = best_params
     artifact = DispatchModelArtifact(
-        artifact_version=1,
+        artifact_version=2,
         model_type="grouped_mlp",
         objective="dispatch_group_softmax_cross_entropy",
         feature_names=train_split.dataset.feature_names,

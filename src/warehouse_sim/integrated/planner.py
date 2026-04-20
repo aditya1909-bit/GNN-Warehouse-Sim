@@ -19,6 +19,9 @@ if TYPE_CHECKING:
     from warehouse_sim.tasks import Task
 
 
+_TIME_EPSILON = 1e-9
+
+
 @dataclass(frozen=True)
 class PlannedMacro:
     """A feasible continuous-time macro plan."""
@@ -184,7 +187,7 @@ class ContinuousOccupancyTable:
         while True:
             next_arrival = current_arrival
             for occupied_time, _robot_id in self._node_times.get(node_id, []):
-                if abs(current_arrival - occupied_time) < clearance_time:
+                if abs(current_arrival - occupied_time) + _TIME_EPSILON < clearance_time:
                     next_arrival = max(next_arrival, occupied_time + clearance_time)
             if next_arrival == current_arrival:
                 return current_arrival
@@ -238,6 +241,7 @@ def generate_route_options(
     k_shortest: int,
     max_route_options: int,
     task_id: str,
+    service_time_estimate: float = 0.0,
 ) -> tuple[MacroCandidate, ...]:
     """Generate route macro options for a task."""
 
@@ -259,7 +263,8 @@ def generate_route_options(
                     task_id=task_id,
                     route_nodes=route_nodes,
                     route_edges=route_edges,
-                    estimated_completion_time=environment.path_travel_time(route_nodes),
+                    estimated_completion_time=environment.path_travel_time(route_nodes) + service_time_estimate,
+                    service_time_estimate=service_time_estimate,
                     pickup_node=pickup_node,
                     dropoff_node=dropoff_node,
                 )
@@ -337,7 +342,12 @@ def plan_route_candidate(
             reserved_node_times.append((target_id, current_time))
     if candidate.route_edges and traversals[-1].target_id != candidate.route_nodes[-1]:
         return None
-    completion_time = traversals[-1].end_time if traversals else start_time
+    if not candidate.route_edges and candidate.route_nodes:
+        pickup_arrival_time = start_time if candidate.pickup_node == candidate.route_nodes[0] else None
+        if pickup_arrival_time is not None:
+            current_time += service_time
+            reserved_node_times.append((candidate.route_nodes[0], current_time))
+    completion_time = current_time
     return PlannedMacro(
         task_id=candidate.task_id,
         route_nodes=candidate.route_nodes,
@@ -434,12 +444,12 @@ def detect_collision_events(
                 ),
             )
             if left.source_id == right.source_id and left.target_id == right.target_id:
-                if abs(left.start_time - right.start_time) < headway:
+                if abs(left.start_time - right.start_time) + _TIME_EPSILON < headway:
                     events.append((max(left.start_time, right.start_time), left.robot_id, right.robot_id, "same_edge_conflict", f"{left.source_id}->{left.target_id}"))
             if left.source_id == right.target_id and left.target_id == right.source_id:
                 if not (left.end_time + headway <= right.start_time or right.end_time + headway <= left.start_time):
                     events.append((max(left.start_time, right.start_time), left.robot_id, right.robot_id, "opposite_edge_conflict", f"{left.source_id}<->{left.target_id}"))
-            if left.target_id == right.target_id and abs(left.end_time - right.end_time) < max(robot_radius * 2.0 + collision_clearance, 1e-6):
+            if left.target_id == right.target_id and abs(left.end_time - right.end_time) + _TIME_EPSILON < max(robot_radius * 2.0 + collision_clearance, 1e-6):
                 events.append((max(left.end_time, right.end_time), left.robot_id, right.robot_id, "node_conflict", left.target_id))
     return tuple(events)
 
@@ -472,39 +482,16 @@ def solve_exact_mapf_macro_plan(
     """
 
     task_by_id = {task.task_id: task for task in tasks}
-    assignment = _solve_task_assignment(observation)
-    if assignment is None:
-        return None
-
-    allowed_indices: dict[str, tuple[int, ...]] = {}
     robot_index_by_id = {robot_id: index for index, robot_id in enumerate(observation.robot_ids)}
-    for robot_index, candidates in enumerate(observation.macro_candidates):
-        chosen_index = assignment[robot_index]
-        candidate = candidates[chosen_index]
-        if candidate.macro_type != "task_route" or candidate.task_id is None:
-            continue
-        robot_id = observation.robot_ids[robot_index]
-        allowed_indices[robot_id] = tuple(
-            index for index, option in enumerate(candidates) if option.task_id == candidate.task_id
-        )
-
-    assigned_task_count = len(allowed_indices)
-    if not allowed_indices:
-        return ExactMAPFSolution(
-            chosen_indices=assignment,
-            planned_routes={},
-            assigned_task_count=0,
-            objective_cost=0.0,
-            makespan=0.0,
-        )
-
+    chosen_indices = [0 for _ in observation.robot_ids]
     best_solution: ExactMAPFSolution | None = None
 
     def recurse(
         remaining_robot_ids: tuple[str, ...],
         current_occupancy: ContinuousOccupancyTable,
+        used_tasks: set[str],
         planned_routes: dict[str, PlannedMacro],
-        chosen_indices: list[int],
+        assigned_task_count: int,
     ) -> None:
         nonlocal best_solution
         if not remaining_robot_ids:
@@ -517,56 +504,98 @@ def solve_exact_mapf_macro_plan(
                 objective_cost=objective_cost,
                 makespan=makespan,
             )
-            if best_solution is None or (
+            ranking = (
+                -candidate_solution.assigned_task_count,
                 candidate_solution.objective_cost,
                 candidate_solution.makespan,
                 candidate_solution.chosen_indices,
-            ) < (
+            )
+            incumbent = (
+                float("inf"),
+                float("inf"),
+                float("inf"),
+                (),
+            ) if best_solution is None else (
+                -best_solution.assigned_task_count,
                 best_solution.objective_cost,
                 best_solution.makespan,
                 best_solution.chosen_indices,
-            ):
+            )
+            if best_solution is None or ranking < incumbent:
                 best_solution = candidate_solution
             return
 
-        for robot_id in remaining_robot_ids:
-            robot_index = robot_index_by_id[robot_id]
-            robot_state = robot_states[robot_index]
-            for candidate_index in allowed_indices[robot_id]:
-                candidate = observation.macro_candidates[robot_index][candidate_index]
-                planned = plan_motion_candidate(
-                    environment,
-                    robot_id=robot_state.spec.robot_id,
-                    start_time=current_time,
-                    speed_multiplier=robot_state.spec.speed_multiplier,
-                    occupancy_table=current_occupancy,
-                    candidate=candidate,
-                    service_time=task_by_id[candidate.task_id].service_time_estimate,
-                    motion_model=config.coordination.motion_model,  # type: ignore[union-attr]
-                )
-                if planned is None:
-                    continue
-                partial_cost = sum(item.completion_time - current_time for item in planned_routes.values()) + (
-                    planned.completion_time - current_time
-                )
-                if best_solution is not None and partial_cost > best_solution.objective_cost + 1e-9:
-                    continue
-                next_occupancy = current_occupancy.clone()
-                next_occupancy.reserve(planned.traversals)
-                for node_id, time in planned.reserved_node_times:
-                    next_occupancy.reserve_node_time(node_id=node_id, time=time, robot_id=robot_id)
-                next_planned_routes = dict(planned_routes)
-                next_planned_routes[robot_id] = planned
-                next_indices = list(chosen_indices)
-                next_indices[robot_index] = candidate_index
+        robot_id = remaining_robot_ids[0]
+        robot_index = robot_index_by_id[robot_id]
+        robot_state = robot_states[robot_index]
+        candidates = observation.macro_candidates[robot_index]
+        for candidate_index, candidate in enumerate(candidates):
+            if candidate.task_id is not None and candidate.task_id in used_tasks:
+                continue
+            chosen_indices[robot_index] = candidate_index
+            if candidate.macro_type == "wait":
                 recurse(
-                    tuple(item for item in remaining_robot_ids if item != robot_id),
-                    next_occupancy,
-                    next_planned_routes,
-                    next_indices,
+                    remaining_robot_ids[1:],
+                    current_occupancy.clone(),
+                    set(used_tasks),
+                    dict(planned_routes),
+                    assigned_task_count,
                 )
+                continue
+            if candidate.macro_type not in {"task_route", "charge_route"}:
+                continue
+            service_time = 0.0
+            if candidate.macro_type in {"task_route", "charge_route"}:
+                service_time = candidate.service_time_estimate
+            planned = plan_motion_candidate(
+                environment,
+                robot_id=robot_state.spec.robot_id,
+                start_time=current_time,
+                speed_multiplier=robot_state.spec.speed_multiplier,
+                occupancy_table=current_occupancy,
+                candidate=candidate,
+                service_time=service_time,
+                motion_model=config.coordination.motion_model,  # type: ignore[union-attr]
+            )
+            if planned is None:
+                continue
+            partial_cost = sum(item.completion_time - current_time for item in planned_routes.values()) + (
+                planned.completion_time - current_time
+            )
+            if (
+                best_solution is not None
+                and assigned_task_count + (1 if candidate.task_id is not None else 0) == best_solution.assigned_task_count
+                and partial_cost > best_solution.objective_cost + 1e-9
+            ):
+                continue
+            next_occupancy = current_occupancy.clone()
+            next_occupancy.reserve(planned.traversals)
+            for node_id, time in planned.reserved_node_times:
+                next_occupancy.reserve_node_time(node_id=node_id, time=time, robot_id=robot_id)
+            next_used_tasks = set(used_tasks)
+            if candidate.task_id is not None:
+                next_used_tasks.add(candidate.task_id)
+            next_planned_routes = dict(planned_routes)
+            next_planned_routes[robot_id] = planned
+            recurse(
+                remaining_robot_ids[1:],
+                next_occupancy,
+                next_used_tasks,
+                next_planned_routes,
+                assigned_task_count + (1 if candidate.task_id is not None else 0),
+            )
 
-    recurse(tuple(sorted(allowed_indices)), occupancy_table.clone(), {}, list(assignment))
+    recurse(
+        tuple(
+            robot_id
+            for robot_id, candidates in zip(observation.robot_ids, observation.macro_candidates, strict=True)
+            if candidates and candidates[0].macro_type != "continue_current_plan"
+        ),
+        occupancy_table.clone(),
+        set(),
+        {},
+        0,
+    )
     return best_solution
 
 
@@ -721,7 +750,7 @@ def _first_traversal_conflict(
                 collision_clearance=collision_clearance,
             )
             if left.source_id == right.source_id and left.target_id == right.target_id:
-                if abs(left.start_time - right.start_time) < headway:
+                if abs(left.start_time - right.start_time) + _TIME_EPSILON < headway:
                     return TraversalConflict(
                         time=max(left.start_time, right.start_time),
                         conflict_type="same_edge_conflict",
@@ -757,7 +786,7 @@ def _first_traversal_conflict(
                         right_end_time=right.end_time,
                     )
             clearance_time = max(robot_radius * 2.0 + collision_clearance, 1e-6)
-            if left.target_id == right.target_id and abs(left.end_time - right.end_time) < clearance_time:
+            if left.target_id == right.target_id and abs(left.end_time - right.end_time) + _TIME_EPSILON < clearance_time:
                 return TraversalConflict(
                     time=max(left.end_time, right.end_time),
                     conflict_type="node_conflict",

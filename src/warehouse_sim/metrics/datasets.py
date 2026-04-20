@@ -41,6 +41,7 @@ def write_observation_dataset(
     _write_csv(dispatch_arcs_path, [asdict(record) for record in result.dispatch_arc_observations])
 
     manifest = {
+        "dataset_schema_version": 2,
         "experiment_name": experiment_name,
         "policy_name": result.policy_name,
         "dispatch_events": len({record.dispatch_index for record in result.dispatch_traces}),

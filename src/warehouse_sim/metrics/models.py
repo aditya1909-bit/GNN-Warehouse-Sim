@@ -18,6 +18,12 @@ class RobotMetrics:
     travel_distance: float
     congestion_delay_time: float
     blocked_traversal_events: int
+    battery_level: float
+    total_energy_consumed: float
+    total_energy_charged: float
+    total_charging_time: float
+    charging_events: int
+    battery_depletion_events: int
 
 
 @dataclass(frozen=True)
@@ -35,6 +41,11 @@ class SimulationMetrics:
     congestion_delay_total: float
     average_congestion_delay_per_completed_task: float | None
     blocked_traversal_events_total: int
+    total_energy_consumed: float
+    total_energy_charged: float
+    total_charging_time: float
+    charging_events_total: int
+    battery_depletion_incidents_total: int
     average_queue_length: float
     throughput_per_hour: float
     makespan: float

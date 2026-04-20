@@ -21,6 +21,7 @@ from warehouse_sim.config.learning_models import (
 )
 from warehouse_sim.config.loader import load_experiment_config
 from warehouse_sim.config.models import (
+    BatteryConfig,
     CoordinationConfig,
     ConfigValidationError,
     DemandConfig,
@@ -38,6 +39,7 @@ from warehouse_sim.config.rl_models import PPOConfig, RLCurriculumConfig, RLFine
 __all__ = [
     "BenchmarkConfig",
     "BenchmarkGateConfig",
+    "BatteryConfig",
     "CoordinationConfig",
     "ConfigValidationError",
     "DemandConfig",

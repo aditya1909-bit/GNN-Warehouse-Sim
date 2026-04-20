@@ -112,7 +112,7 @@ Dispatch learning paths currently implemented:
 - PyG-based graph-conditioned dispatch scoring
 - masked PPO fine-tuning over dispatch-event action masks
 
-The canonical dispatch artifact builder now trains from a merged multi-scenario corpus, uses `scenario_seed` train/validation/test splits, and supports benchmark-weighted losses so congestion-heavy cases matter more than low-contention snapshots.
+The canonical dispatch artifact builder now trains from a merged multi-scenario corpus, uses `scenario_seed` train/validation/test splits, supports benchmark-weighted losses so congestion-heavy cases matter more than low-contention snapshots, and writes one relocatable artifact manifest that canonical benchmarks can consume without hardcoded artifact paths.
 
 Integrated learning path currently implemented:
 
@@ -136,14 +136,14 @@ Integrated non-learning policies currently supported:
 - `optimal_mapf_coordinator`
 - `random_macro`
 
-The integrated stack writes explicit robot trajectories, macro decisions, collision events, and planner-plan tables so planner behavior is inspectable beyond scalar summary metrics.
+The integrated stack writes explicit robot trajectories, macro decisions, collision events, planner-plan tables, and charging execution tables so planner and energy behavior are inspectable beyond scalar summary metrics.
 
 ## Limitations / Honest Caveats
 
 - The checked-in headline results currently support planner and congestion-aware heuristic claims, not broad learned-policy superiority claims.
-- The canonical full-matrix configs expect trained artifact paths for `trained_linear_model`, `trained_mlp_model`, `trained_graph_dispatch_model`, and `trained_end_to_end_macro_ppo`. Generating that artifact bundle is the remaining step before the canonical suite can support full learning-vs-planning claims end to end.
+- The canonical full-matrix configs now resolve learned policies through the canonical artifact manifest. The artifact bundle still needs to be generated before the canonical suite can support full learning-vs-planning claims end to end.
 - Global optimal MAPF over future task releases is still out of scope. The exact MAPF baseline is explicitly current-epoch and bounded to the current macro candidate surface.
-- Battery/charging behavior and obstacle-aware free-space geometry are still not implemented.
+- Dispatch and integrated runs now support battery-aware task filtering, charge actions, charging metrics, and explicit polygon obstacle geometry, but this is still a research scaffold rather than a warehouse-grade battery-management or CAD-geometry stack.
 
 ## Documentation
 

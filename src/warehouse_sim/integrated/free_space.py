@@ -2,17 +2,30 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from math import hypot
 
 from warehouse_sim.environment import WarehouseEnvironment
 from warehouse_sim.integrated.geometry import (
     inflate_obstacles,
     polyline_distance,
+    visibility_graph_k_shortest_paths,
     visibility_graph_shortest_path,
 )
 from warehouse_sim.integrated.models import TimedTraversal, TimedWaypoint
 from warehouse_sim.integrated.planner import PlannedMacro
 from warehouse_sim.integrated.planner import ConflictConstraint, _apply_node_constraints
+
+_TIME_EPSILON = 1e-9
+
+
+@dataclass(frozen=True)
+class ContinuousRouteOption:
+    """One continuous geometric route realization over the coarse route nodes."""
+
+    leg_points: tuple[tuple[tuple[float, float], ...], ...]
+    distance: float
+    travel_time: float
 
 
 class FreeSpaceOccupancyTable:
@@ -64,7 +77,7 @@ class FreeSpaceOccupancyTable:
         while True:
             next_arrival = current_arrival
             for occupied_time, _robot_id in self._node_times.get(node_id, []):
-                if abs(current_arrival - occupied_time) < clearance_time:
+                if abs(current_arrival - occupied_time) + _TIME_EPSILON < clearance_time:
                     next_arrival = max(next_arrival, occupied_time + clearance_time)
             if abs(next_arrival - current_arrival) < 1e-9:
                 return current_arrival
@@ -149,6 +162,68 @@ def estimate_obstacle_aware_completion_time(
     return total_distance / max(_base_travel_speed(environment) * speed_multiplier, 1e-6)
 
 
+def continuous_route_options(
+    environment: WarehouseEnvironment,
+    *,
+    route_nodes: tuple[str, ...],
+    speed_multiplier: float,
+    robot_radius: float,
+    collision_clearance: float,
+    max_leg_paths: int,
+    max_route_options: int,
+) -> tuple[ContinuousRouteOption, ...]:
+    """Enumerate up to ``max_route_options`` continuous route realizations."""
+
+    if len(route_nodes) <= 1:
+        return (ContinuousRouteOption(leg_points=(), distance=0.0, travel_time=0.0),)
+
+    inflated_obstacles = _inflated_environment_obstacles(
+        environment,
+        robot_radius=robot_radius,
+        collision_clearance=collision_clearance,
+    )
+    per_leg_paths: list[tuple[tuple[tuple[float, float], ...], ...]] = []
+    for source_id, target_id in zip(route_nodes, route_nodes[1:]):
+        leg_options = _obstacle_aware_leg_point_options(
+            environment,
+            source_id=source_id,
+            target_id=target_id,
+            inflated_obstacles=inflated_obstacles,
+            max_paths=max_leg_paths,
+        )
+        if not leg_options:
+            return ()
+        per_leg_paths.append(leg_options)
+
+    partials: list[tuple[tuple[tuple[tuple[float, float], ...], ...], float]] = [((), 0.0)]
+    for leg_options in per_leg_paths:
+        next_partials: list[tuple[tuple[tuple[tuple[float, float], ...], ...], float]] = []
+        for leg_points_prefix, distance_prefix in partials:
+            for leg_points in leg_options:
+                next_partials.append(((*leg_points_prefix, leg_points), distance_prefix + polyline_distance(leg_points)))
+        next_partials.sort(key=lambda item: (item[1], _leg_points_key(item[0])))
+        partials = next_partials[: max(max_route_options * max(max_leg_paths, 1), max_route_options)]
+
+    speed = max(_base_travel_speed(environment) * speed_multiplier, 1e-6)
+    options: list[ContinuousRouteOption] = []
+    seen: set[tuple[tuple[int, int], ...]] = set()
+    for leg_points, distance in sorted(partials, key=lambda item: (item[1], _leg_points_key(item[0]))):
+        key = _leg_points_key(leg_points)
+        if key in seen:
+            continue
+        seen.add(key)
+        options.append(
+            ContinuousRouteOption(
+                leg_points=leg_points,
+                distance=distance,
+                travel_time=distance / speed,
+            )
+        )
+        if len(options) >= max_route_options:
+            break
+    return tuple(options)
+
+
 def plan_free_space_candidate(
     environment: WarehouseEnvironment,
     *,
@@ -161,83 +236,15 @@ def plan_free_space_candidate(
     constraints: tuple[ConflictConstraint, ...] = (),
 ) -> PlannedMacro | None:
     """Realize a macro candidate as direct free-space segments between node positions."""
-
-    current_time = start_time
-    traversals: list[TimedTraversal] = []
-    reserved_node_times: list[tuple[str, float]] = []
-    blocked_events = 0
-    wait_time = 0.0
-    pickup_arrival_time: float | None = None
-    speed = max(_base_travel_speed(environment) * speed_multiplier, 1e-6)
-
-    for index, (source_id, target_id) in enumerate(zip(candidate.route_nodes, candidate.route_nodes[1:])):
-        start_x, start_y = node_position(environment, node_id=source_id)
-        end_x, end_y = node_position(environment, node_id=target_id)
-        distance = free_space_distance(environment, source_id=source_id, target_id=target_id)
-        if distance <= 1e-9:
-            if candidate.pickup_node == target_id and pickup_arrival_time is None:
-                pickup_arrival_time = current_time
-                current_time += service_time
-                reserved_node_times.append((target_id, current_time))
-            continue
-        traversal_time = distance / speed
-        earliest_departure = occupancy_table.segment_delay(
-            start_x=start_x,
-            start_y=start_y,
-            end_x=end_x,
-            end_y=end_y,
-            departure_time=current_time,
-            traversal_time=traversal_time,
-        )
-        departure_time, arrival_time = _apply_free_space_constraints(
-            robot_id=robot_id,
-            source_id=source_id,
-            target_id=target_id,
-            earliest_departure=earliest_departure,
-            traversal_time=traversal_time,
-            occupancy_table=occupancy_table,
-            constraints=constraints,
-        )
-        if departure_time - current_time > 1e-9:
-            blocked_events += 1
-            wait_time += departure_time - current_time
-        phase = "travel_to_pickup"
-        if pickup_arrival_time is not None:
-            phase = "travel_to_dropoff"
-        elif candidate.pickup_node == target_id:
-            pickup_arrival_time = arrival_time
-        traversals.append(
-            TimedTraversal(
-                robot_id=robot_id,
-                source_id=source_id,
-                target_id=target_id,
-                start_time=departure_time,
-                end_time=arrival_time,
-                distance=distance,
-                travel_time=traversal_time,
-                task_id=candidate.task_id,
-                phase=phase,
-                start_x=start_x,
-                start_y=start_y,
-                end_x=end_x,
-                end_y=end_y,
-            )
-        )
-        current_time = arrival_time
-        if candidate.pickup_node == target_id and pickup_arrival_time is not None:
-            current_time += service_time
-            reserved_node_times.append((target_id, current_time))
-
-    completion_time = traversals[-1].end_time if traversals else start_time
-    return PlannedMacro(
-        task_id=candidate.task_id,
-        route_nodes=candidate.route_nodes,
-        traversals=tuple(traversals),
-        completion_time=completion_time,
-        pickup_arrival_time=pickup_arrival_time,
-        blocked_events=blocked_events,
-        wait_time=wait_time,
-        reserved_node_times=tuple(reserved_node_times),
+    return _plan_continuous_candidate(
+        environment,
+        robot_id=robot_id,
+        start_time=start_time,
+        speed_multiplier=speed_multiplier,
+        occupancy_table=occupancy_table,
+        candidate=candidate,
+        service_time=service_time,
+        constraints=constraints,
     )
 
 
@@ -255,112 +262,17 @@ def plan_obstacle_aware_free_space_candidate(
     constraints: tuple[ConflictConstraint, ...] = (),
 ) -> PlannedMacro | None:
     """Realize a macro candidate as an obstacle-aware continuous free-space path."""
-
-    current_time = start_time
-    traversals: list[TimedTraversal] = []
-    reserved_node_times: list[tuple[str, float]] = []
-    blocked_events = 0
-    wait_time = 0.0
-    pickup_arrival_time: float | None = None
-    speed = max(_base_travel_speed(environment) * speed_multiplier, 1e-6)
-    inflated_obstacles = _inflated_environment_obstacles(
+    return _plan_continuous_candidate(
         environment,
+        robot_id=robot_id,
+        start_time=start_time,
+        speed_multiplier=speed_multiplier,
+        occupancy_table=occupancy_table,
+        candidate=candidate,
         robot_radius=robot_radius,
         collision_clearance=collision_clearance,
-    )
-
-    for leg_index, (source_id, target_id) in enumerate(zip(candidate.route_nodes, candidate.route_nodes[1:])):
-        leg_points = _obstacle_aware_leg_points(
-            environment,
-            source_id=source_id,
-            target_id=target_id,
-            inflated_obstacles=inflated_obstacles,
-        )
-        if leg_points is None:
-            return None
-        if len(leg_points) == 1:
-            if candidate.pickup_node == target_id and pickup_arrival_time is None:
-                pickup_arrival_time = current_time
-                current_time += service_time
-                reserved_node_times.append((target_id, current_time))
-            continue
-
-        leg_phase = "travel_to_dropoff" if pickup_arrival_time is not None else "travel_to_pickup"
-        for point_index, (start_point, end_point) in enumerate(zip(leg_points, leg_points[1:])):
-            segment_source_id = _free_space_point_id(
-                source_id=source_id,
-                target_id=target_id,
-                robot_id=robot_id,
-                leg_index=leg_index,
-                point_index=point_index,
-                point_count=len(leg_points),
-            )
-            segment_target_id = _free_space_point_id(
-                source_id=source_id,
-                target_id=target_id,
-                robot_id=robot_id,
-                leg_index=leg_index,
-                point_index=point_index + 1,
-                point_count=len(leg_points),
-            )
-            distance = hypot(end_point[0] - start_point[0], end_point[1] - start_point[1])
-            if distance <= 1e-9:
-                continue
-            traversal_time = distance / speed
-            earliest_departure = occupancy_table.segment_delay(
-                start_x=start_point[0],
-                start_y=start_point[1],
-                end_x=end_point[0],
-                end_y=end_point[1],
-                departure_time=current_time,
-                traversal_time=traversal_time,
-            )
-            departure_time, arrival_time = _apply_free_space_constraints(
-                robot_id=robot_id,
-                source_id=segment_source_id,
-                target_id=segment_target_id,
-                earliest_departure=earliest_departure,
-                traversal_time=traversal_time,
-                occupancy_table=occupancy_table,
-                constraints=constraints,
-            )
-            if departure_time - current_time > 1e-9:
-                blocked_events += 1
-                wait_time += departure_time - current_time
-            traversals.append(
-                TimedTraversal(
-                    robot_id=robot_id,
-                    source_id=segment_source_id,
-                    target_id=segment_target_id,
-                    start_time=departure_time,
-                    end_time=arrival_time,
-                    distance=distance,
-                    travel_time=traversal_time,
-                    task_id=candidate.task_id,
-                    phase=leg_phase,
-                    start_x=start_point[0],
-                    start_y=start_point[1],
-                    end_x=end_point[0],
-                    end_y=end_point[1],
-                )
-            )
-            current_time = arrival_time
-
-        if candidate.pickup_node == target_id and pickup_arrival_time is None:
-            pickup_arrival_time = current_time
-            current_time += service_time
-            reserved_node_times.append((target_id, current_time))
-
-    completion_time = traversals[-1].end_time if traversals else start_time
-    return PlannedMacro(
-        task_id=candidate.task_id,
-        route_nodes=candidate.route_nodes,
-        traversals=tuple(traversals),
-        completion_time=completion_time,
-        pickup_arrival_time=pickup_arrival_time,
-        blocked_events=blocked_events,
-        wait_time=wait_time,
-        reserved_node_times=tuple(reserved_node_times),
+        service_time=service_time,
+        constraints=constraints,
     )
 
 
@@ -437,6 +349,189 @@ def _inflated_environment_obstacles(
     )
 
 
+def _plan_continuous_candidate(
+    environment: WarehouseEnvironment,
+    *,
+    robot_id: str,
+    start_time: float,
+    speed_multiplier: float,
+    occupancy_table: FreeSpaceOccupancyTable,
+    candidate,
+    service_time: float = 0.0,
+    constraints: tuple[ConflictConstraint, ...] = (),
+    robot_radius: float | None = None,
+    collision_clearance: float | None = None,
+) -> PlannedMacro | None:
+    current_time = start_time
+    traversals: list[TimedTraversal] = []
+    reserved_node_times: list[tuple[str, float]] = []
+    blocked_events = 0
+    wait_time = 0.0
+    pickup_arrival_time: float | None = None
+    speed = max(_base_travel_speed(environment) * speed_multiplier, 1e-6)
+    leg_points_by_leg = _resolve_candidate_leg_points(
+        environment,
+        candidate=candidate,
+        robot_radius=robot_radius,
+        collision_clearance=collision_clearance,
+    )
+    if leg_points_by_leg is None:
+        return None
+
+    if not candidate.route_nodes:
+        return PlannedMacro(
+            task_id=candidate.task_id,
+            route_nodes=(),
+            traversals=(),
+            completion_time=current_time,
+            pickup_arrival_time=None,
+            blocked_events=0,
+            wait_time=0.0,
+            reserved_node_times=(),
+        )
+
+    if len(candidate.route_nodes) == 1:
+        pickup_arrival_time = current_time if candidate.pickup_node == candidate.route_nodes[0] else None
+        if pickup_arrival_time is not None:
+            current_time += service_time
+            reserved_node_times.append((candidate.route_nodes[0], current_time))
+        return PlannedMacro(
+            task_id=candidate.task_id,
+            route_nodes=candidate.route_nodes,
+            traversals=(),
+            completion_time=current_time,
+            pickup_arrival_time=pickup_arrival_time,
+            blocked_events=0,
+            wait_time=0.0,
+            reserved_node_times=tuple(reserved_node_times),
+        )
+
+    for leg_index, ((source_id, target_id), leg_points) in enumerate(
+        zip(zip(candidate.route_nodes, candidate.route_nodes[1:]), leg_points_by_leg, strict=True)
+    ):
+        if len(leg_points) == 1:
+            if candidate.pickup_node == target_id and pickup_arrival_time is None:
+                pickup_arrival_time = current_time
+                current_time += service_time
+                reserved_node_times.append((target_id, current_time))
+            continue
+
+        leg_phase = "travel_to_dropoff" if pickup_arrival_time is not None else "travel_to_pickup"
+        for point_index, (start_point, end_point) in enumerate(zip(leg_points, leg_points[1:])):
+            segment_source_id = _free_space_point_id(
+                source_id=source_id,
+                target_id=target_id,
+                robot_id=robot_id,
+                leg_index=leg_index,
+                point_index=point_index,
+                point_count=len(leg_points),
+            )
+            segment_target_id = _free_space_point_id(
+                source_id=source_id,
+                target_id=target_id,
+                robot_id=robot_id,
+                leg_index=leg_index,
+                point_index=point_index + 1,
+                point_count=len(leg_points),
+            )
+            distance = hypot(end_point[0] - start_point[0], end_point[1] - start_point[1])
+            if distance <= 1e-9:
+                continue
+            traversal_time = distance / speed
+            earliest_departure = occupancy_table.segment_delay(
+                start_x=start_point[0],
+                start_y=start_point[1],
+                end_x=end_point[0],
+                end_y=end_point[1],
+                departure_time=current_time,
+                traversal_time=traversal_time,
+            )
+            departure_time, arrival_time = _apply_free_space_constraints(
+                robot_id=robot_id,
+                source_id=segment_source_id,
+                target_id=segment_target_id,
+                earliest_departure=earliest_departure,
+                traversal_time=traversal_time,
+                occupancy_table=occupancy_table,
+                constraints=constraints,
+            )
+            if departure_time - current_time > 1e-9:
+                blocked_events += 1
+                wait_time += departure_time - current_time
+            traversals.append(
+                TimedTraversal(
+                    robot_id=robot_id,
+                    source_id=segment_source_id,
+                    target_id=segment_target_id,
+                    start_time=departure_time,
+                    end_time=arrival_time,
+                    distance=distance,
+                    travel_time=traversal_time,
+                    task_id=candidate.task_id,
+                    phase=leg_phase,
+                    start_x=start_point[0],
+                    start_y=start_point[1],
+                    end_x=end_point[0],
+                    end_y=end_point[1],
+                )
+            )
+            current_time = arrival_time
+
+        if candidate.pickup_node == target_id and pickup_arrival_time is None:
+            pickup_arrival_time = current_time
+            current_time += service_time
+            reserved_node_times.append((target_id, current_time))
+
+    return PlannedMacro(
+        task_id=candidate.task_id,
+        route_nodes=candidate.route_nodes,
+        traversals=tuple(traversals),
+        completion_time=current_time,
+        pickup_arrival_time=pickup_arrival_time,
+        blocked_events=blocked_events,
+        wait_time=wait_time,
+        reserved_node_times=tuple(reserved_node_times),
+    )
+
+
+def _resolve_candidate_leg_points(
+    environment: WarehouseEnvironment,
+    *,
+    candidate,
+    robot_radius: float | None,
+    collision_clearance: float | None,
+) -> tuple[tuple[tuple[float, float], ...], ...] | None:
+    if candidate.leg_points:
+        return candidate.leg_points
+    if len(candidate.route_nodes) <= 1:
+        return ()
+    if robot_radius is None or collision_clearance is None:
+        return tuple(
+            (
+                node_position(environment, node_id=source_id),
+                node_position(environment, node_id=target_id),
+            )
+            for source_id, target_id in zip(candidate.route_nodes, candidate.route_nodes[1:])
+        )
+    inflated_obstacles = _inflated_environment_obstacles(
+        environment,
+        robot_radius=robot_radius,
+        collision_clearance=collision_clearance,
+    )
+    leg_points: list[tuple[tuple[float, float], ...]] = []
+    for source_id, target_id in zip(candidate.route_nodes, candidate.route_nodes[1:]):
+        path = _obstacle_aware_leg_points(
+            environment,
+            source_id=source_id,
+            target_id=target_id,
+            inflated_obstacles=inflated_obstacles,
+        )
+        if path is None:
+            return None
+        leg_points.append(path)
+    return tuple(leg_points)
+
+
 def _obstacle_aware_leg_points(
     environment: WarehouseEnvironment,
     *,
@@ -444,10 +539,47 @@ def _obstacle_aware_leg_points(
     target_id: str,
     inflated_obstacles,
 ):
-    return visibility_graph_shortest_path(
+    options = _obstacle_aware_leg_point_options(
+        environment,
+        source_id=source_id,
+        target_id=target_id,
+        inflated_obstacles=inflated_obstacles,
+        max_paths=1,
+    )
+    return None if not options else options[0]
+
+
+def _obstacle_aware_leg_point_options(
+    environment: WarehouseEnvironment,
+    *,
+    source_id: str,
+    target_id: str,
+    inflated_obstacles,
+    max_paths: int,
+) -> tuple[tuple[tuple[float, float], ...], ...]:
+    if source_id == target_id:
+        return ((node_position(environment, node_id=source_id),),)
+    paths = visibility_graph_k_shortest_paths(
         node_position(environment, node_id=source_id),
         node_position(environment, node_id=target_id),
         obstacles=inflated_obstacles,
+        k=max_paths,
+    )
+    if paths:
+        return paths
+    fallback = visibility_graph_shortest_path(
+        node_position(environment, node_id=source_id),
+        node_position(environment, node_id=target_id),
+        obstacles=inflated_obstacles,
+    )
+    if fallback is not None:
+        return (fallback,)
+    try:
+        fallback_nodes = environment.shortest_path(source_id, target_id, weight="distance")
+    except Exception:
+        return ()
+    return (
+        tuple(node_position(environment, node_id=node_id) for node_id in fallback_nodes),
     )
 
 
@@ -465,6 +597,11 @@ def _free_space_point_id(
     if point_index == point_count - 1:
         return target_id
     return f"{robot_id}::{source_id}::{target_id}::leg_{leg_index}::wp_{point_index}"
+
+
+def _leg_points_key(leg_points: tuple[tuple[tuple[float, float], ...], ...]) -> tuple[tuple[int, int], ...]:
+    flattened = tuple(point for leg in leg_points for point in leg)
+    return tuple((round(point[0] / 1e-6), round(point[1] / 1e-6)) for point in flattened)
 
 
 def _apply_free_space_constraints(

@@ -16,7 +16,25 @@ class DispatchDecision:
     """Assignment decision returned by a dispatch policy."""
 
     robot_id: str
-    task_id: str
+    action_type: str = "task"
+    task_id: str | None = None
+    charging_node_id: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.action_type not in {"task", "charge"}:
+            raise ValueError("DispatchDecision.action_type must be 'task' or 'charge'.")
+        if self.action_type == "task" and not self.task_id:
+            raise ValueError("DispatchDecision.task_id must be set for task actions.")
+        if self.action_type == "charge" and not self.charging_node_id:
+            raise ValueError("DispatchDecision.charging_node_id must be set for charge actions.")
+
+    @classmethod
+    def for_task(cls, *, robot_id: str, task_id: str) -> "DispatchDecision":
+        return cls(robot_id=robot_id, action_type="task", task_id=task_id)
+
+    @classmethod
+    def for_charge(cls, *, robot_id: str, charging_node_id: str) -> "DispatchDecision":
+        return cls(robot_id=robot_id, action_type="charge", charging_node_id=charging_node_id)
 
 
 class DispatchPolicy(ABC):

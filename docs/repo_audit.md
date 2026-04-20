@@ -44,9 +44,9 @@ Concrete additions in the latest stage:
 
 The repository still does not implement a full warehouse simulator.
 
-- No battery or charging behavior
+- Battery and charging are implemented in both dispatch and integrated stacks, but not with degradation, swaps, or charger-network optimization
 - No global warehouse-level optimal MAPF guarantees across dynamic task allocation and future releases
-- No obstacle-aware free-space off-graph geometry beyond the current open-plane motion mode
+- No full CAD-grade geometry pipeline; polygon obstacle support is limited to the integrated continuous-motion planner
 
 ## Current Framing
 

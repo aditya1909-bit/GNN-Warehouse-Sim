@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from warehouse_sim.environment import (
+    ObstaclePolygon,
     WarehouseEnvironment,
     Zone,
     obstacle_rectangles_from_blocked_cells,
@@ -61,3 +62,18 @@ def test_environment_retains_obstacle_geometry_from_blocked_cells() -> None:
     assert obstacles[0].min_y == 1.0
     assert obstacles[0].max_x == 3.0
     assert obstacles[0].max_y == 3.0
+
+
+def test_environment_retains_explicit_polygon_obstacle_geometry() -> None:
+    graph = build_synthetic_grid_layout(SyntheticGridLayoutConfig(rows=3, columns=3))
+    polygon = ObstaclePolygon(
+        obstacle_id="polygon_1",
+        vertices=((0.5, 0.5), (0.5, 1.5), (1.5, 1.5), (1.5, 0.5)),
+    )
+
+    environment = WarehouseEnvironment(graph=graph, obstacles=(polygon,))
+
+    obstacles = environment.obstacles()
+    assert len(obstacles) == 1
+    assert obstacles[0].obstacle_id == "polygon_1"
+    assert obstacles[0].vertices == polygon.vertices

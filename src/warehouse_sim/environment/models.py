@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from math import hypot
 
 from warehouse_sim.graph import GraphValidationError, WarehouseEdge, WarehouseGraph, WarehouseNode
+
+Point2D = tuple[float, float]
 
 
 @dataclass(frozen=True)
@@ -40,6 +43,15 @@ class ObstacleRectangle:
         if self.min_y >= self.max_y:
             raise GraphValidationError("ObstacleRectangle min_y must be < max_y.")
 
+    @property
+    def vertices(self) -> tuple[Point2D, ...]:
+        return (
+            (self.min_x, self.min_y),
+            (self.min_x, self.max_y),
+            (self.max_x, self.max_y),
+            (self.max_x, self.min_y),
+        )
+
     def inflate(self, margin: float) -> "ObstacleRectangle":
         """Return a rectangle expanded by a non-negative margin."""
 
@@ -54,6 +66,64 @@ class ObstacleRectangle:
         )
 
 
+@dataclass(frozen=True)
+class ObstaclePolygon:
+    """Simple polygon obstacle in warehouse coordinates."""
+
+    obstacle_id: str
+    vertices: tuple[Point2D, ...]
+
+    def __post_init__(self) -> None:
+        if not self.obstacle_id:
+            raise GraphValidationError("obstacle_id must be non-empty.")
+        if len(self.vertices) < 3:
+            raise GraphValidationError("ObstaclePolygon must contain at least three vertices.")
+        if abs(_polygon_area(self.vertices)) <= 1e-9:
+            raise GraphValidationError("ObstaclePolygon vertices must enclose non-zero area.")
+
+    @property
+    def min_x(self) -> float:
+        return min(vertex[0] for vertex in self.vertices)
+
+    @property
+    def min_y(self) -> float:
+        return min(vertex[1] for vertex in self.vertices)
+
+    @property
+    def max_x(self) -> float:
+        return max(vertex[0] for vertex in self.vertices)
+
+    @property
+    def max_y(self) -> float:
+        return max(vertex[1] for vertex in self.vertices)
+
+    def inflate(self, margin: float) -> "ObstaclePolygon":
+        """Return a centroid-expanded polygon approximation."""
+
+        if margin < 0:
+            raise GraphValidationError("ObstaclePolygon inflation margin must be >= 0.")
+        if margin == 0:
+            return self
+        center_x, center_y = _polygon_centroid(self.vertices)
+        inflated_vertices: list[Point2D] = []
+        for x_value, y_value in self.vertices:
+            dx = x_value - center_x
+            dy = y_value - center_y
+            norm = hypot(dx, dy)
+            if norm <= 1e-9:
+                inflated_vertices.append((x_value, y_value))
+                continue
+            scale = (norm + margin) / norm
+            inflated_vertices.append((center_x + dx * scale, center_y + dy * scale))
+        return ObstaclePolygon(
+            obstacle_id=f"{self.obstacle_id}__inflated_{margin:.6f}",
+            vertices=tuple(inflated_vertices),
+        )
+
+
+ObstacleGeometry = ObstacleRectangle | ObstaclePolygon
+
+
 class WarehouseEnvironment:
     """A warehouse environment backed by a topology graph and named zones."""
 
@@ -61,14 +131,14 @@ class WarehouseEnvironment:
         self,
         graph: WarehouseGraph,
         zones: tuple[Zone, ...] | None = None,
-        obstacles: tuple[ObstacleRectangle, ...] | None = None,
+        obstacles: tuple[ObstacleGeometry, ...] | None = None,
     ) -> None:
         self.graph = graph
         resolved_zones = zones if zones is not None else _derive_zones_from_graph(graph)
         resolved_obstacles = obstacles if obstacles is not None else ()
         self._zones: dict[str, Zone] = {}
         self._node_to_zone: dict[str, str] = {}
-        self._obstacles: tuple[ObstacleRectangle, ...] = tuple(resolved_obstacles)
+        self._obstacles: tuple[ObstacleGeometry, ...] = tuple(resolved_obstacles)
 
         for zone in resolved_zones:
             if zone.zone_id in self._zones:
@@ -85,10 +155,24 @@ class WarehouseEnvironment:
 
         return tuple(self._zones.values())
 
-    def obstacles(self) -> tuple[ObstacleRectangle, ...]:
-        """Return warehouse obstacle rectangles."""
+    def obstacles(self) -> tuple[ObstacleGeometry, ...]:
+        """Return warehouse obstacle geometry."""
 
         return self._obstacles
+
+    def nodes_by_type(self, node_type: str) -> tuple[WarehouseNode, ...]:
+        """Return nodes matching a graph node type value."""
+
+        return tuple(
+            node
+            for node in sorted(self.graph.nodes(), key=lambda item: item.node_id)
+            if node.node_type == node_type
+        )
+
+    def charging_nodes(self) -> tuple[WarehouseNode, ...]:
+        """Return charging nodes in stable order."""
+
+        return self.nodes_by_type("charging")
 
     def zone(self, zone_id: str) -> Zone:
         """Fetch a zone by id."""
@@ -188,3 +272,55 @@ def obstacle_rectangles_from_blocked_cells(
             )
         )
     return tuple(obstacles)
+
+
+def obstacle_polygons_from_blocked_cells(
+    blocked_cells: tuple[tuple[int, int], ...],
+    *,
+    edge_length: float,
+) -> tuple[ObstaclePolygon, ...]:
+    """Materialize blocked grid cells as square polygon obstacles."""
+
+    if edge_length <= 0:
+        raise GraphValidationError("edge_length must be > 0 for obstacle polygon generation.")
+    half_extent = edge_length / 2.0
+    obstacles: list[ObstaclePolygon] = []
+    for row, column in blocked_cells:
+        center_x = float(column) * edge_length
+        center_y = float(row) * edge_length
+        obstacles.append(
+            ObstaclePolygon(
+                obstacle_id=f"blocked_r{row}_c{column}",
+                vertices=(
+                    (center_x - half_extent, center_y - half_extent),
+                    (center_x - half_extent, center_y + half_extent),
+                    (center_x + half_extent, center_y + half_extent),
+                    (center_x + half_extent, center_y - half_extent),
+                ),
+            )
+        )
+    return tuple(obstacles)
+
+
+def _polygon_area(vertices: tuple[Point2D, ...]) -> float:
+    area = 0.0
+    for (x0, y0), (x1, y1) in zip(vertices, (*vertices[1:], vertices[0])):
+        area += x0 * y1 - x1 * y0
+    return area / 2.0
+
+
+def _polygon_centroid(vertices: tuple[Point2D, ...]) -> Point2D:
+    area = _polygon_area(vertices)
+    if abs(area) <= 1e-9:
+        mean_x = sum(vertex[0] for vertex in vertices) / len(vertices)
+        mean_y = sum(vertex[1] for vertex in vertices) / len(vertices)
+        return mean_x, mean_y
+
+    factor = 1.0 / (6.0 * area)
+    centroid_x = 0.0
+    centroid_y = 0.0
+    for (x0, y0), (x1, y1) in zip(vertices, (*vertices[1:], vertices[0])):
+        cross = x0 * y1 - x1 * y0
+        centroid_x += (x0 + x1) * cross
+        centroid_y += (y0 + y1) * cross
+    return centroid_x * factor, centroid_y * factor

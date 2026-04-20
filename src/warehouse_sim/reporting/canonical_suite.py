@@ -5,11 +5,13 @@ from __future__ import annotations
 import csv
 import json
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
+from warehouse_sim.config import load_benchmark_config
 from warehouse_sim.reporting import write_artifact_manifest, write_config_snapshot, write_seed_bundle
-from warehouse_sim.simulation import run_benchmark_from_path
+from warehouse_sim.simulation import run_benchmark_from_config
+from warehouse_sim.simulation.benchmark import _resolve_benchmark_paths
 
 
 @dataclass(frozen=True)
@@ -21,6 +23,7 @@ class CanonicalBenchmarkSuiteConfig:
     integrated_benchmark: Path
     output_dir: Path
     analyze_after_run: bool = True
+    artifact_manifest: Path | None = None
 
 
 def load_canonical_suite_config(path: Path) -> CanonicalBenchmarkSuiteConfig:
@@ -35,6 +38,11 @@ def load_canonical_suite_config(path: Path) -> CanonicalBenchmarkSuiteConfig:
         integrated_benchmark=(path.parent / str(suite["integrated_benchmark"])).resolve(),
         output_dir=(path.parent / str(suite["output_dir"])).resolve(),
         analyze_after_run=bool(suite.get("analyze_after_run", True)),
+        artifact_manifest=(
+            None
+            if suite.get("artifact_manifest") is None
+            else (path.parent / str(suite["artifact_manifest"])).resolve()
+        ),
     )
 
 
@@ -50,11 +58,21 @@ def run_canonical_suite_from_path(config_path: Path) -> dict[str, Path]:
         "dispatch_root": dispatch_output,
         "integrated_root": integrated_output,
     }
+    dispatch_benchmark = _load_suite_benchmark(
+        suite.dispatch_benchmark,
+        suite_root_override=dispatch_output,
+        artifact_manifest=suite.artifact_manifest,
+    )
+    integrated_benchmark = _load_suite_benchmark(
+        suite.integrated_benchmark,
+        suite_root_override=integrated_output,
+        artifact_manifest=suite.artifact_manifest,
+    )
     written.update(
         {
             f"dispatch_{label}": path
-            for label, path in run_benchmark_from_path(
-                benchmark_config_path=suite.dispatch_benchmark,
+            for label, path in run_benchmark_from_config(
+                benchmark_config=dispatch_benchmark,
                 benchmark_root_override=dispatch_output,
             ).items()
         }
@@ -62,8 +80,8 @@ def run_canonical_suite_from_path(config_path: Path) -> dict[str, Path]:
     written.update(
         {
             f"integrated_{label}": path
-            for label, path in run_benchmark_from_path(
-                benchmark_config_path=suite.integrated_benchmark,
+            for label, path in run_benchmark_from_config(
+                benchmark_config=integrated_benchmark,
                 benchmark_root_override=integrated_output,
             ).items()
         }
@@ -166,3 +184,16 @@ def _write_csv(path: Path, rows: list[dict[str, str]], fieldnames: tuple[str, ..
             }
             for row in rows
         )
+
+
+def _load_suite_benchmark(
+    benchmark_path: Path,
+    *,
+    suite_root_override: Path,
+    artifact_manifest: Path | None,
+):
+    benchmark = _resolve_benchmark_paths(load_benchmark_config(benchmark_path), benchmark_path.parent)
+    benchmark = replace(benchmark, output_dir=suite_root_override)
+    if artifact_manifest is not None and benchmark.artifact_manifest is None:
+        benchmark = replace(benchmark, artifact_manifest=artifact_manifest)
+    return benchmark

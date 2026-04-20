@@ -7,10 +7,9 @@ from dataclasses import dataclass
 from warehouse_sim.agents import RobotSpec, RobotState
 from warehouse_sim.environment import WarehouseEnvironment
 from warehouse_sim.integrated.free_space import (
+    continuous_route_options,
     FreeSpaceOccupancyTable,
     detect_free_space_collision_events,
-    estimate_free_space_completion_time,
-    estimate_obstacle_aware_completion_time,
 )
 from warehouse_sim.integrated.models import (
     CollisionEventRecord,
@@ -28,19 +27,36 @@ from warehouse_sim.integrated.planner import (
 )
 from warehouse_sim.integrated.policies import IntegratedCoordinatorPolicy
 from warehouse_sim.metrics.collector import compute_simulation_metrics
-from warehouse_sim.simulation.models import ExecutionModel, QueueSnapshot, SimulationConfig, SimulationResult, TaskExecution
+from warehouse_sim.simulation.models import (
+    ChargingExecution,
+    ExecutionModel,
+    QueueSnapshot,
+    SimulationConfig,
+    SimulationResult,
+    TaskExecution,
+)
 from warehouse_sim.tasks import Task
+from warehouse_sim.utils.battery import (
+    battery_enabled,
+    estimate_charge_action,
+    estimate_task_action,
+    nearest_charging_option,
+    travel_energy,
+)
 
 
 @dataclass(frozen=True)
 class _ActivePlan:
-    task: Task
+    action_type: str
+    task: Task | None
     assigned_at: float
-    pickup_arrival_time: float
+    pickup_arrival_time: float | None
     completion_time: float
     traversals: tuple
     blocked_events: int
     wait_time: float
+    charging_node_id: str | None = None
+    energy_before: float = 0.0
 
 
 def run_integrated_simulation(
@@ -69,6 +85,7 @@ def run_integrated_simulation(
     decision_index = 0
     plan_index = 0
     executions: list[TaskExecution] = []
+    charging_executions: list[ChargingExecution] = []
     queue_snapshots: list[QueueSnapshot] = []
     robot_trajectories: list[IntegratedRobotTrajectoryRecord] = []
     macro_decisions: list[MacroDecisionRecord] = []
@@ -83,7 +100,10 @@ def run_integrated_simulation(
             robot_states=robot_states,
             active_plans=active_plans,
             executions=executions,
+            charging_executions=charging_executions,
             completed_task_ids=completed_task_ids,
+            environment=environment,
+            battery_config=config.battery,
         )
 
         should_replan = current_time + 1e-9 >= next_replan_time
@@ -127,6 +147,7 @@ def run_integrated_simulation(
                         robot_id=robot.spec.robot_id,
                         macro_type=candidate.macro_type,
                         task_id=candidate.task_id,
+                        charging_node=candidate.charging_node,
                         route_nodes=candidate.route_nodes,
                         route_edges=tuple(f"{source}->{target}" for source, target in candidate.route_edges),
                         estimated_completion_time=candidate.estimated_completion_time,
@@ -134,11 +155,15 @@ def run_integrated_simulation(
                     )
                 )
                 decision_index += 1
-                if candidate.macro_type != "task_route" or candidate.task_id is None:
+                if candidate.macro_type not in {"task_route", "charge_route"}:
                     continue
                 if robot.spec.robot_id in active_plans:
                     continue
-                task = task_by_id[candidate.task_id]
+                task = None if candidate.task_id is None else task_by_id[candidate.task_id]
+                service_time = candidate.service_time_estimate
+                if candidate.macro_type == "charge_route":
+                    if config.battery is None or candidate.charging_node is None:
+                        continue
                 planned = output.planned_routes.get(robot.spec.robot_id)
                 if planned is None:
                     planned = plan_motion_candidate(
@@ -148,16 +173,16 @@ def run_integrated_simulation(
                         speed_multiplier=robot.spec.speed_multiplier,
                         occupancy_table=occupancy,
                         candidate=candidate,
-                        service_time=task.service_time_estimate,
+                        service_time=service_time,
                         motion_model=config.coordination.motion_model,
                     )
-                if planned is None or planned.pickup_arrival_time is None:
+                if planned is None:
                     planner_plans.append(
                         PlannerPlanRecord(
                             plan_index=plan_index,
                             plan_time=current_time,
                             robot_id=robot.spec.robot_id,
-                            task_id=task.task_id,
+                            task_id=None if task is None else task.task_id,
                             priority_rank=robot_index,
                             path_nodes=candidate.route_nodes,
                             path_edges=tuple(f"{source}->{target}" for source, target in candidate.route_edges),
@@ -172,9 +197,11 @@ def run_integrated_simulation(
                 occupancy.reserve(planned.traversals)
                 for node_id, time in planned.reserved_node_times:
                     occupancy.reserve_node_time(node_id=node_id, time=time, robot_id=robot.spec.robot_id)
-                used_tasks.add(task.task_id)
-                claimed_task_ids.add(task.task_id)
+                if task is not None:
+                    used_tasks.add(task.task_id)
+                    claimed_task_ids.add(task.task_id)
                 active_plans[robot.spec.robot_id] = _ActivePlan(
+                    action_type=candidate.macro_type,
                     task=task,
                     assigned_at=current_time,
                     pickup_arrival_time=planned.pickup_arrival_time,
@@ -182,6 +209,8 @@ def run_integrated_simulation(
                     traversals=planned.traversals,
                     blocked_events=planned.blocked_events,
                     wait_time=planned.wait_time,
+                    charging_node_id=candidate.charging_node,
+                    energy_before=robot.battery_level,
                 )
                 robot.available_time = planned.completion_time
                 planner_plans.append(
@@ -189,7 +218,7 @@ def run_integrated_simulation(
                         plan_index=plan_index,
                         plan_time=current_time,
                         robot_id=robot.spec.robot_id,
-                        task_id=task.task_id,
+                        task_id=None if task is None else task.task_id,
                         priority_rank=robot_index,
                         path_nodes=planned.route_nodes,
                         path_edges=tuple(
@@ -206,7 +235,7 @@ def run_integrated_simulation(
                     robot_trajectories.append(
                         IntegratedRobotTrajectoryRecord(
                             robot_id=robot.spec.robot_id,
-                            task_id=task.task_id,
+                            task_id=None if task is None else task.task_id,
                             phase=traversal.phase,
                             source_id=traversal.source_id,
                             target_id=traversal.target_id,
@@ -245,6 +274,7 @@ def run_integrated_simulation(
             current_time=current_time,
             tasks=tasks,
             released_task_ids=released_task_ids,
+            completed_task_ids=completed_task_ids,
             robot_states=robot_states,
             next_replan_time=next_replan_time,
             config=config,
@@ -259,7 +289,10 @@ def run_integrated_simulation(
         robot_states=robot_states,
         active_plans=active_plans,
         executions=executions,
+        charging_executions=charging_executions,
         completed_task_ids=completed_task_ids,
+        environment=environment,
+        battery_config=config.battery,
     )
     _record_queue_snapshot(queue_snapshots, finished_at, tasks, released_task_ids, completed_task_ids, active_plans)
     result = SimulationResult(
@@ -277,6 +310,7 @@ def run_integrated_simulation(
         ),
         queue_snapshots=tuple(queue_snapshots),
         metrics=None,  # type: ignore[arg-type]
+        charging_executions=tuple(charging_executions),
         robot_trajectories=tuple(robot_trajectories),
         macro_decisions=tuple(macro_decisions),
         collision_events=tuple(collision_events),
@@ -296,6 +330,7 @@ def run_integrated_simulation(
         unassigned_tasks=result.unassigned_tasks,
         queue_snapshots=result.queue_snapshots,
         metrics=metrics,
+        charging_executions=result.charging_executions,
         robot_trajectories=result.robot_trajectories,
         macro_decisions=result.macro_decisions,
         collision_events=result.collision_events,
@@ -409,61 +444,72 @@ def _build_robot_macro_candidates(
         return (
             MacroCandidate(
                 macro_type="continue_current_plan",
-                task_id=active_plan.task.task_id,
+                task_id=None if active_plan.task is None else active_plan.task.task_id,
                 route_nodes=tuple(
                     [active_plan.traversals[0].source_id, *(traversal.target_id for traversal in active_plan.traversals)]
                 ) if active_plan.traversals else (robot.current_node,),
                 route_edges=tuple((traversal.source_id, traversal.target_id) for traversal in active_plan.traversals),
                 estimated_completion_time=active_plan.completion_time,
-                pickup_node=active_plan.task.pickup_node,
-                dropoff_node=active_plan.task.dropoff_node,
+                pickup_node=None if active_plan.task is None else active_plan.task.pickup_node,
+                dropoff_node=None if active_plan.task is None else active_plan.task.dropoff_node,
+                charging_node=active_plan.charging_node_id,
             ),
         )
 
-    candidates = [MacroCandidate(macro_type="wait", estimated_completion_time=current_time + config.coordination.control_dt if config.coordination else current_time)]
+    candidates: list[MacroCandidate] = []
     assert config.coordination is not None
+    if not (
+        config.battery is not None
+        and config.battery.enabled
+        and robot.spec.battery_capacity > 0
+        and robot.battery_level / max(robot.spec.battery_capacity, 1e-9) <= config.battery.dispatch_charge_threshold
+    ):
+        candidates.append(
+            MacroCandidate(
+                macro_type="wait",
+                estimated_completion_time=current_time + config.coordination.control_dt if config.coordination else current_time,
+            )
+        )
     for task in sorted(tasks, key=lambda item: (item.release_time, item.task_id)):
         if task.task_id not in released_task_ids or task.task_id in claimed_task_ids or task.task_id in completed_task_ids:
             continue
-        if config.coordination.motion_model == "free_space":
-            route_nodes = (robot.current_node, task.pickup_node, task.dropoff_node)
-            candidates.append(
-                MacroCandidate(
-                    macro_type="task_route",
-                    task_id=task.task_id,
-                    route_nodes=route_nodes,
-                    route_edges=tuple(zip(route_nodes, route_nodes[1:])),
-                    estimated_completion_time=estimate_free_space_completion_time(
-                        environment,
-                        route_nodes=route_nodes,
-                        speed_multiplier=robot.spec.speed_multiplier,
-                    ),
-                    pickup_node=task.pickup_node,
-                    dropoff_node=task.dropoff_node,
-                )
+        if battery_enabled(config.battery):
+            battery_estimate = estimate_task_action(
+                environment,
+                robot_node=robot.current_node,
+                pickup_node=task.pickup_node,
+                dropoff_node=task.dropoff_node,
+                battery_level=robot.battery_level,
+                speed_multiplier=robot.spec.speed_multiplier,
+                battery_config=config.battery,
             )
-        elif config.coordination.motion_model == "obstacle_aware_free_space":
+            if battery_estimate is None or not battery_estimate.charger_reachable_after_action:
+                continue
+        if config.coordination.motion_model in {"free_space", "obstacle_aware_free_space"}:
             route_nodes = (robot.current_node, task.pickup_node, task.dropoff_node)
-            estimate = estimate_obstacle_aware_completion_time(
+            route_options = continuous_route_options(
                 environment,
                 route_nodes=route_nodes,
                 speed_multiplier=robot.spec.speed_multiplier,
                 robot_radius=config.coordination.robot_radius,
                 collision_clearance=config.coordination.collision_clearance,
+                max_leg_paths=config.coordination.k_shortest_paths,
+                max_route_options=config.coordination.max_route_options_per_pair,
             )
-            if estimate is None:
-                continue
-            candidates.append(
-                MacroCandidate(
-                    macro_type="task_route",
-                    task_id=task.task_id,
-                    route_nodes=route_nodes,
-                    route_edges=tuple(zip(route_nodes, route_nodes[1:])),
-                    estimated_completion_time=estimate,
-                    pickup_node=task.pickup_node,
-                    dropoff_node=task.dropoff_node,
+            for option in route_options:
+                candidates.append(
+                    MacroCandidate(
+                        macro_type="task_route",
+                        task_id=task.task_id,
+                        route_nodes=route_nodes,
+                        route_edges=tuple(zip(route_nodes, route_nodes[1:])),
+                        estimated_completion_time=option.travel_time + task.service_time_estimate,
+                        service_time_estimate=task.service_time_estimate,
+                        pickup_node=task.pickup_node,
+                        dropoff_node=task.dropoff_node,
+                        leg_points=option.leg_points,
+                    )
                 )
-            )
         else:
             candidates.extend(
                 generate_route_options(
@@ -474,8 +520,70 @@ def _build_robot_macro_candidates(
                     k_shortest=config.coordination.k_shortest_paths,
                     max_route_options=config.coordination.max_route_options_per_pair,
                     task_id=task.task_id,
+                    service_time_estimate=task.service_time_estimate,
                 )
             )
+    if battery_enabled(config.battery):
+        charge_option = nearest_charging_option(
+            environment,
+            source_node=robot.current_node,
+            speed_multiplier=robot.spec.speed_multiplier,
+            battery_config=config.battery,
+        )
+        if charge_option is not None:
+            battery_estimate = estimate_charge_action(
+                environment,
+                robot_node=robot.current_node,
+                charging_node_id=charge_option.charging_node_id,
+                battery_level=robot.battery_level,
+                speed_multiplier=robot.spec.speed_multiplier,
+                battery_config=config.battery,
+            )
+            if battery_estimate.charger_reachable_after_action and (battery_estimate.charge_duration_to_full or 0.0) > 1e-9:
+                charge_duration = battery_estimate.charge_duration_to_full or 0.0
+                route_nodes = (
+                    (robot.current_node,)
+                    if robot.current_node == charge_option.charging_node_id
+                    else (robot.current_node, charge_option.charging_node_id)
+                )
+                if config.coordination.motion_model in {"free_space", "obstacle_aware_free_space"}:
+                    route_options = continuous_route_options(
+                        environment,
+                        route_nodes=route_nodes,
+                        speed_multiplier=robot.spec.speed_multiplier,
+                        robot_radius=config.coordination.robot_radius,
+                        collision_clearance=config.coordination.collision_clearance,
+                        max_leg_paths=config.coordination.k_shortest_paths,
+                        max_route_options=config.coordination.max_route_options_per_pair,
+                    )
+                    if route_options:
+                        for option in route_options:
+                            candidates.append(
+                                MacroCandidate(
+                                    macro_type="charge_route",
+                                    route_nodes=route_nodes,
+                                    route_edges=tuple(zip(route_nodes, route_nodes[1:])),
+                                    estimated_completion_time=option.travel_time + charge_duration,
+                                    service_time_estimate=charge_duration,
+                                    pickup_node=charge_option.charging_node_id,
+                                    dropoff_node=charge_option.charging_node_id,
+                                    charging_node=charge_option.charging_node_id,
+                                    leg_points=option.leg_points,
+                                )
+                            )
+                else:
+                    candidates.append(
+                        MacroCandidate(
+                            macro_type="charge_route",
+                            route_nodes=route_nodes,
+                            route_edges=tuple(zip(route_nodes, route_nodes[1:])),
+                            estimated_completion_time=charge_option.travel_time + charge_duration,
+                            service_time_estimate=charge_duration,
+                            pickup_node=charge_option.charging_node_id,
+                            dropoff_node=charge_option.charging_node_id,
+                            charging_node=charge_option.charging_node_id,
+                        )
+                    )
     return tuple(candidates)
 
 
@@ -508,7 +616,10 @@ def _finalize_completed_plans(
     robot_states: tuple[RobotState, ...],
     active_plans: dict[str, _ActivePlan],
     executions: list[TaskExecution],
+    charging_executions: list[ChargingExecution],
     completed_task_ids: set[str],
+    environment: WarehouseEnvironment,
+    battery_config,
 ) -> None:
     completed_robot_ids = [
         robot_id for robot_id, plan in active_plans.items() if plan.completion_time <= current_time + 1e-9
@@ -516,6 +627,52 @@ def _finalize_completed_plans(
     for robot_id in completed_robot_ids:
         plan = active_plans.pop(robot_id)
         robot = next(robot for robot in robot_states if robot.spec.robot_id == robot_id)
+        if plan.action_type == "charge_route":
+            assert battery_enabled(battery_config)
+            assert plan.charging_node_id is not None
+            charge_estimate = estimate_charge_action(
+                environment,
+                robot_node=plan.traversals[0].source_id if plan.traversals else plan.charging_node_id,
+                charging_node_id=plan.charging_node_id,
+                battery_level=plan.energy_before,
+                speed_multiplier=robot.spec.speed_multiplier,
+                battery_config=battery_config,
+            )
+            travel_distance = sum(item.distance for item in plan.traversals)
+            travel_time = sum(item.travel_time for item in plan.traversals)
+            arrival_time = plan.pickup_arrival_time or plan.assigned_at
+            charge_duration = max(plan.completion_time - arrival_time, 0.0)
+            energy_after_travel = max(plan.energy_before - charge_estimate.estimated_action_energy, 0.0)
+            robot.current_node = plan.charging_node_id
+            robot.available_time = plan.completion_time
+            robot.total_busy_time += plan.completion_time - plan.assigned_at
+            robot.total_travel_time += travel_time
+            robot.total_travel_distance += travel_distance
+            robot.total_congestion_delay += plan.wait_time
+            robot.blocked_traversal_events += plan.blocked_events
+            robot.total_energy_consumed += charge_estimate.estimated_action_energy
+            robot.total_energy_charged += max(float(battery_config.capacity) - energy_after_travel, 0.0)
+            robot.total_charging_time += charge_duration
+            robot.charging_events += 1
+            robot.battery_level = float(battery_config.capacity)
+            charging_executions.append(
+                ChargingExecution(
+                    robot_id=robot_id,
+                    charging_node_id=plan.charging_node_id,
+                    started_at=plan.assigned_at,
+                    arrival_time=arrival_time,
+                    charging_start_time=arrival_time,
+                    completion_time=plan.completion_time,
+                    travel_time=travel_time,
+                    travel_distance=travel_distance,
+                    charge_duration=charge_duration,
+                    waiting_time=plan.wait_time,
+                    energy_before=plan.energy_before,
+                    energy_after=float(battery_config.capacity),
+                )
+            )
+            continue
+        assert plan.task is not None
         travel_to_pickup = tuple(
             traversal for traversal in plan.traversals if traversal.phase == "travel_to_pickup"
         )
@@ -537,6 +694,12 @@ def _finalize_completed_plans(
         robot.blocked_traversal_events += plan.blocked_events
         robot.completed_task_ids.append(plan.task.task_id)
         completed_task_ids.add(plan.task.task_id)
+        if battery_enabled(battery_config):
+            consumed = travel_energy(pickup_distance + dropoff_distance, battery_config) + float(battery_config.service_energy)
+            robot.total_energy_consumed += consumed
+            robot.battery_level = max(robot.battery_level - consumed, 0.0)
+            if robot.battery_level <= 1e-9:
+                robot.battery_depletion_events += 1
         executions.append(
             TaskExecution(
                 task_id=plan.task.task_id,
@@ -586,7 +749,9 @@ def _record_queue_snapshot(
     active_plans: dict[str, _ActivePlan],
 ) -> None:
     ready_tasks = sum(
-        task.task_id in released_task_ids and task.task_id not in completed_task_ids and all(plan.task.task_id != task.task_id for plan in active_plans.values())
+        task.task_id in released_task_ids
+        and task.task_id not in completed_task_ids
+        and all(plan.task is None or plan.task.task_id != task.task_id for plan in active_plans.values())
         for task in tasks
     )
     future_tasks = sum(task.release_time > current_time for task in tasks if task.task_id not in completed_task_ids)
@@ -608,6 +773,7 @@ def _next_integrated_event_time(
     current_time: float,
     tasks: tuple[Task, ...],
     released_task_ids: set[str],
+    completed_task_ids: set[str],
     robot_states: tuple[RobotState, ...],
     next_replan_time: float,
     config: SimulationConfig,
@@ -622,9 +788,18 @@ def _next_integrated_event_time(
         for robot in robot_states
         if robot.available_time > current_time + 1e-9
     ]
-    if not future_releases and not active_robot_times:
+    ready_incomplete_tasks = [
+        task
+        for task in tasks
+        if task.task_id in released_task_ids and task.task_id not in completed_task_ids
+    ]
+    if not future_releases and not active_robot_times and not ready_incomplete_tasks:
         return None
-    next_times = [time for time in [next_replan_time] if time > current_time + 1e-9]
+    next_times = [
+        time
+        for time in [next_replan_time]
+        if time > current_time + 1e-9 and (ready_incomplete_tasks or future_releases or active_robot_times)
+    ]
     next_times.extend(future_releases)
     next_times.extend(active_robot_times)
     if not next_times:

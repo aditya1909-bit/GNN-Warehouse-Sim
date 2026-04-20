@@ -2,16 +2,21 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import replace
 from pathlib import Path
 import shutil
 import tomllib
 
-from warehouse_sim.config import load_experiment_config, load_integrated_rl_training_config
-from warehouse_sim.learning.cli import run_offline_training_from_path
-from warehouse_sim.learning.integrated_rl import run_integrated_rl_training_from_config
+from warehouse_sim.config import (
+    load_experiment_config,
+    load_integrated_rl_training_config,
+    load_offline_training_config,
+)
+from warehouse_sim.learning.cli import run_offline_training_from_config
 from warehouse_sim.reporting import write_artifact_manifest, write_config_snapshot
 from warehouse_sim.simulation import run_experiment_from_config
+from warehouse_sim.utils.dependencies import require_dependency
 
 
 def build_canonical_artifacts(
@@ -41,11 +46,26 @@ def build_canonical_artifacts(
         ("mlp", mlp_config_path),
         ("graph", graph_config_path),
     ):
-        outputs = run_offline_training_from_path(config_path)
+        loaded = load_offline_training_config(config_path)
+        outputs = run_offline_training_from_config(
+            replace(
+                loaded,
+                dataset=replace(loaded.dataset, source=dataset_output_dir),
+                reporting=replace(loaded.reporting, output_dir=output_dir / f"dispatch_{prefix}"),
+            )
+        )
         written.update({f"{prefix}_{label}": path for label, path in outputs.items()})
 
+    loaded_macro = load_integrated_rl_training_config(macro_config_path)
+    require_dependency("torch", feature="Canonical integrated PPO artifact generation")
+    require_dependency("torch_geometric", feature="Canonical integrated PPO artifact generation")
+    from warehouse_sim.learning.integrated_rl import run_integrated_rl_training_from_config
+
     macro_outputs = run_integrated_rl_training_from_config(
-        load_integrated_rl_training_config(macro_config_path)
+        replace(
+            loaded_macro,
+            output_dir=output_dir / "macro_ppo",
+        )
     )
     written.update({f"macro_{label}": path for label, path in macro_outputs.items()})
 
@@ -69,6 +89,13 @@ def build_canonical_artifacts(
         generated_paths=written,
         config_snapshot_path=config_snapshot,
         extra_metadata={
+            "artifact_aliases": {
+                "dispatch_dataset": _relative_to_manifest(output_dir / "manifest.json", written["dataset_corpus_root"]),
+                "trained_linear_model": _relative_to_manifest(output_dir / "manifest.json", written["linear_artifact"]),
+                "trained_mlp_model": _relative_to_manifest(output_dir / "manifest.json", written["mlp_artifact"]),
+                "trained_graph_dispatch_model": _relative_to_manifest(output_dir / "manifest.json", written["graph_artifact"]),
+                "trained_end_to_end_macro_ppo": _relative_to_manifest(output_dir / "manifest.json", written["macro_artifact"]),
+            },
             "artifact_bundle": {
                 "dispatch_linear": str(written["linear_artifact"]),
                 "dispatch_mlp": str(written["mlp_artifact"]),
@@ -116,3 +143,7 @@ def _build_dispatch_corpus(
             written[f"{base_config.name}_seed_{seed}_dataset_manifest"] = run_written["dataset_manifest"]
     written["corpus_root"] = output_dir
     return written
+
+
+def _relative_to_manifest(manifest_path: Path, target_path: Path) -> str:
+    return os.path.relpath(target_path.resolve(), manifest_path.parent.resolve())

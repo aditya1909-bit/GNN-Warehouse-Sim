@@ -30,6 +30,20 @@ class CoordinationMode(StrEnum):
 
 
 @dataclass(frozen=True)
+class BatteryRuntimeConfig:
+    """Runtime battery and charging settings."""
+
+    enabled: bool = False
+    capacity: float = 100.0
+    initial_charge_fraction: float = 1.0
+    travel_energy_per_distance: float = 1.0
+    service_energy: float = 0.0
+    charge_rate: float = 5.0
+    dispatch_charge_threshold: float = 0.2
+    minimum_reserve_fraction: float = 0.1
+
+
+@dataclass(frozen=True)
 class CoordinationRuntimeConfig:
     """Runtime settings for integrated coordination mode."""
 
@@ -51,6 +65,7 @@ class SimulationConfig:
     coordination_mode: CoordinationMode = CoordinationMode.DISPATCH
     execution_model: ExecutionModel = ExecutionModel.IDEALIZED
     coordination: CoordinationRuntimeConfig | None = None
+    battery: BatteryRuntimeConfig | None = None
 
     def __post_init__(self) -> None:
         if self.horizon_seconds is not None and self.horizon_seconds < 0:
@@ -96,6 +111,24 @@ class TaskExecution:
 
 
 @dataclass(frozen=True)
+class ChargingExecution:
+    """Execution record for one robot charging action."""
+
+    robot_id: str
+    charging_node_id: str
+    started_at: float
+    arrival_time: float
+    charging_start_time: float
+    completion_time: float
+    travel_time: float
+    travel_distance: float
+    charge_duration: float
+    waiting_time: float
+    energy_before: float
+    energy_after: float
+
+
+@dataclass(frozen=True)
 class QueueSnapshot:
     """Event-time queue snapshot for metrics and visualization."""
 
@@ -113,9 +146,13 @@ class DispatchTraceRecord:
     dispatch_index: int
     decision_time: float
     selected_robot_id: str
+    selected_action_type: str
     selected_task_id: str
+    selected_charging_node_id: str
     candidate_robot_id: str
+    candidate_action_type: str
     candidate_task_id: str
+    candidate_charging_node_id: str
     is_selected: bool
     robot_current_node: str
     robot_current_zone: str | None
@@ -125,6 +162,11 @@ class DispatchTraceRecord:
     robot_total_idle_time: float
     robot_total_travel_time: float
     robot_total_travel_distance: float
+    robot_battery_level: float
+    robot_battery_fraction: float
+    robot_total_charging_time: float
+    robot_total_energy_consumed: float
+    robot_total_energy_charged: float
     task_release_time: float
     task_age: float
     task_priority: int
@@ -163,6 +205,11 @@ class DispatchTraceRecord:
     estimated_dropoff_congestion_delay: float
     estimated_pickup_blocked_segments: int
     estimated_dropoff_blocked_segments: int
+    battery_fraction: float
+    estimated_action_energy: float
+    post_action_battery_fraction: float
+    charger_reachable_after_action: float
+    is_charge_action: float
 
 
 @dataclass(frozen=True)
@@ -210,6 +257,7 @@ class SimulationResult:
     unassigned_tasks: tuple[Task, ...]
     queue_snapshots: tuple[QueueSnapshot, ...]
     metrics: "SimulationMetrics"
+    charging_executions: tuple[ChargingExecution, ...] = ()
     robot_trajectories: tuple[object, ...] = ()
     macro_decisions: tuple[object, ...] = ()
     collision_events: tuple[object, ...] = ()

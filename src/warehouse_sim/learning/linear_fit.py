@@ -108,7 +108,7 @@ def fit_grouped_linear_model(
     raw_weights = best_weights / scales
     raw_bias = float(best_bias - np.dot(means / scales, best_weights))
     artifact = DispatchModelArtifact(
-        artifact_version=1,
+        artifact_version=2,
         model_type="grouped_linear",
         objective="dispatch_group_softmax_cross_entropy",
         feature_names=train_split.dataset.feature_names,

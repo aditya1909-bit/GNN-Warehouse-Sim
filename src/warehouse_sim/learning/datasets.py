@@ -32,6 +32,10 @@ def load_dispatch_observation_dataset(
 
     for dataset_index, entry in enumerate(source_entries):
         manifest_payload = entry.manifest_payload or {}
+        if manifest_payload and int(manifest_payload.get("dataset_schema_version", 0)) != 2:
+            raise ValueError(
+                f"Dispatch dataset manifest {entry.manifest_path} is not schema version 2."
+            )
         dispatch_rows = _read_csv_rows(entry.dispatch_observations_path)
         dataset_id = str(
             manifest_payload.get("run_id")

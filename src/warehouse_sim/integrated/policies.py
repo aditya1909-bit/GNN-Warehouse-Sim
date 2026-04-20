@@ -7,10 +7,9 @@ from dataclasses import dataclass, field
 import random
 from typing import TYPE_CHECKING
 
-import torch
-
 from warehouse_sim.integrated.models import IntegratedObservation
 from warehouse_sim.integrated.planner import solve_exact_mapf_macro_plan
+from warehouse_sim.utils.dependencies import require_dependency
 
 if TYPE_CHECKING:
     from warehouse_sim.agents import RobotState
@@ -98,10 +97,16 @@ class PrioritizedSIPPCoordinatorPolicy(IntegratedCoordinatorPolicy):
             for index, candidate in enumerate(candidates):
                 if candidate.task_id is not None and candidate.task_id in used_tasks:
                     continue
+                macro_priority = 2
+                if candidate.macro_type == "task_route":
+                    macro_priority = 0
+                elif candidate.macro_type == "charge_route":
+                    macro_priority = 1
                 ranking = (
-                    0 if candidate.macro_type == "task_route" else 1,
+                    macro_priority,
                     candidate.estimated_completion_time,
                     candidate.task_id or "",
+                    candidate.charging_node or "",
                 )
                 if best_key is None or ranking < best_key:
                     best_key = ranking
@@ -123,6 +128,7 @@ class EndToEndMacroArtifactPolicy(IntegratedCoordinatorPolicy):
         self._model = model
 
     def select_macros(self, observation: IntegratedObservation) -> IntegratedPolicyOutput:
+        torch = require_dependency("torch", feature="trained end-to-end macro PPO inference")
         with torch.no_grad():
             return self._model.act(observation, greedy=True)
 

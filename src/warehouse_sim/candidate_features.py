@@ -41,4 +41,9 @@ SUPPORTED_CANDIDATE_FEATURES = (
     "estimated_dropoff_congestion_delay",
     "estimated_pickup_blocked_segments",
     "estimated_dropoff_blocked_segments",
+    "battery_fraction",
+    "estimated_action_energy",
+    "post_action_battery_fraction",
+    "charger_reachable_after_action",
+    "is_charge_action",
 )

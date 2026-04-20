@@ -25,6 +25,7 @@ def write_simulation_report(
     executions_path = output_dir / "executions.csv"
     queue_path = output_dir / "queue_snapshots.csv"
     robot_metrics_path = output_dir / "robot_metrics.csv"
+    charging_executions_path = output_dir / "charging_executions.csv"
     robot_trajectories_path = output_dir / "robot_trajectories.csv"
     macro_decisions_path = output_dir / "macro_decisions.csv"
     collision_events_path = output_dir / "collision_events.csv"
@@ -42,6 +43,7 @@ def write_simulation_report(
     _write_csv(executions_path, [asdict(execution) for execution in result.executions])
     _write_csv(queue_path, [asdict(snapshot) for snapshot in result.queue_snapshots])
     _write_csv(robot_metrics_path, [asdict(metric) for metric in result.metrics.robot_metrics])
+    _write_csv(charging_executions_path, [asdict(record) for record in result.charging_executions])
     _write_csv(robot_trajectories_path, [asdict(record) for record in result.robot_trajectories])
     _write_csv(macro_decisions_path, [asdict(record) for record in result.macro_decisions])
     _write_csv(collision_events_path, [asdict(record) for record in result.collision_events])
@@ -53,6 +55,8 @@ def write_simulation_report(
         "queue_snapshots": queue_path,
         "robot_metrics": robot_metrics_path,
     }
+    if result.charging_executions:
+        written["charging_executions"] = charging_executions_path
     if result.robot_trajectories:
         written["robot_trajectories"] = robot_trajectories_path
     if result.macro_decisions:

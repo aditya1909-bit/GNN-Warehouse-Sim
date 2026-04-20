@@ -11,7 +11,7 @@ from warehouse_sim.simulation import run_experiment_from_path
 def test_run_experiment_with_trained_linear_model_artifact(tmp_path: Path) -> None:
     artifact_path = write_dispatch_model_artifact(
         DispatchModelArtifact(
-            artifact_version=1,
+            artifact_version=2,
             model_type="grouped_linear",
             objective="dispatch_group_softmax_cross_entropy",
             feature_names=("travel_to_pickup_time", "task_age"),

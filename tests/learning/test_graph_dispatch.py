@@ -173,7 +173,7 @@ def _write_random_graph_artifact(tmp_path: Path) -> Path:
     state_path = tmp_path / "graph_dispatch_model.pt"
     torch.save(model.state_dict(), state_path)
     artifact = DispatchModelArtifact(
-        artifact_version=1,
+        artifact_version=2,
         model_type="pyg_graph_dispatch",
         objective="dispatch_group_softmax_cross_entropy",
         feature_names=DEFAULT_GRAPH_CANDIDATE_FEATURES,

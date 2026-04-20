@@ -8,7 +8,7 @@ from pathlib import Path
 from warehouse_sim.config import BenchmarkConfig, ExperimentConfig, load_benchmark_config, load_experiment_config
 from warehouse_sim.config.models import PolicyModelConfig
 from warehouse_sim.metrics import write_benchmark_report
-from warehouse_sim.reporting import METRIC_SCHEMA_VERSION, build_simulation_metric_record
+from warehouse_sim.reporting import METRIC_SCHEMA_VERSION, build_simulation_metric_record, load_artifact_aliases
 from warehouse_sim.simulation.runner import run_experiment_from_config
 
 
@@ -134,17 +134,30 @@ def _resolve_benchmark_paths(config: BenchmarkConfig, config_dir: Path) -> Bench
         for path in config.scenario_configs
     )
     resolved_output = config.output_dir if config.output_dir.is_absolute() else (config_dir / config.output_dir).resolve()
+    resolved_manifest = (
+        None
+        if config.artifact_manifest is None
+        else (
+            config.artifact_manifest
+            if config.artifact_manifest.is_absolute()
+            else (config_dir / config.artifact_manifest).resolve()
+        )
+    )
+    alias_artifacts = {} if resolved_manifest is None else _policy_artifacts_from_manifest(resolved_manifest)
     resolved_policy_artifacts = {
         policy_name: artifact_path
         if artifact_path.is_absolute()
         else (config_dir / artifact_path).resolve()
         for policy_name, artifact_path in config.policy_artifacts.items()
     }
+    for policy_name, artifact_path in alias_artifacts.items():
+        resolved_policy_artifacts.setdefault(policy_name, artifact_path)
     return replace(
         config,
         scenario_configs=resolved_paths,
         output_dir=resolved_output,
         policy_artifacts=resolved_policy_artifacts,
+        artifact_manifest=resolved_manifest,
     )
 
 
@@ -218,6 +231,8 @@ def _benchmark_config_snapshot(config: BenchmarkConfig) -> str:
         f"write_plots = {'true' if config.write_plots else 'false'}",
         f"write_manifest = {'true' if config.write_manifest else 'false'}",
     ]
+    if config.artifact_manifest is not None:
+        lines.append(f'artifact_manifest = "{config.artifact_manifest}"')
     if config.seeds is not None:
         seeds = ", ".join(str(seed) for seed in config.seeds)
         lines.append(f"seeds = [{seeds}]")
@@ -227,3 +242,17 @@ def _benchmark_config_snapshot(config: BenchmarkConfig) -> str:
         for policy_name, artifact_path in sorted(config.policy_artifacts.items()):
             lines.append(f'{policy_name} = "{artifact_path}"')
     return "\n".join(lines) + "\n"
+
+
+def _policy_artifacts_from_manifest(artifact_manifest: Path) -> dict[str, Path]:
+    aliases = load_artifact_aliases(artifact_manifest)
+    return {
+        policy_name: aliases[policy_name]
+        for policy_name in (
+            "trained_linear_model",
+            "trained_mlp_model",
+            "trained_graph_dispatch_model",
+            "trained_end_to_end_macro_ppo",
+        )
+        if policy_name in aliases
+    }

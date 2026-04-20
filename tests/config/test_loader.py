@@ -172,6 +172,56 @@ def test_load_integrated_obstacle_aware_free_space_experiment_config() -> None:
     assert config.coordination.motion_model == "obstacle_aware_free_space"
 
 
+def test_load_battery_and_polygon_layout_config(tmp_path: Path) -> None:
+    config_path = tmp_path / "battery_polygon.toml"
+    config_path.write_text(
+        """
+name = "battery_polygon"
+
+[layout]
+rows = 4
+columns = 4
+charging_cells = [[3, 0]]
+obstacle_polygons = [[[0.5, 0.5], [0.5, 1.5], [1.5, 1.5], [1.5, 0.5]]]
+
+[demand]
+horizon_seconds = 60.0
+mean_interval = 30.0
+seed = 7
+
+[robots]
+count = 1
+
+[tasks]
+
+[simulation]
+policy = "fifo"
+
+[battery]
+enabled = true
+capacity = 12.0
+initial_charge_fraction = 0.25
+travel_energy_per_distance = 1.5
+service_energy = 0.5
+charge_rate = 4.0
+dispatch_charge_threshold = 0.4
+minimum_reserve_fraction = 0.15
+
+[reporting]
+output_dir = "outputs/battery_polygon"
+""".strip(),
+        encoding="utf-8",
+    )
+
+    config = load_experiment_config(config_path)
+
+    assert config.layout.charging_cells == ((3, 0),)
+    assert config.layout.obstacle_polygons == (((0.5, 0.5), (0.5, 1.5), (1.5, 1.5), (1.5, 0.5)),)
+    assert config.battery is not None
+    assert config.battery.enabled is True
+    assert config.battery.capacity == 12.0
+
+
 def test_load_integrated_rl_training_config() -> None:
     config_path = Path(__file__).resolve().parents[2] / "configs" / "integrated_macro_ppo_training.toml"
     config = load_integrated_rl_training_config(config_path)

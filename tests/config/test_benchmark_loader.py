@@ -43,6 +43,25 @@ trained_linear_model = "artifacts/linear.json"
     assert config.seeds == (7, 11)
 
 
+def test_load_benchmark_manifest_with_artifact_manifest(tmp_path: Path) -> None:
+    config_path = tmp_path / "benchmark.toml"
+    config_path.write_text(
+        """
+[benchmark]
+name = "trained_policy_benchmark"
+scenario_configs = ["scenario.toml"]
+policies = ["trained_linear_model"]
+artifact_manifest = "artifacts/manifest.json"
+output_dir = "outputs/benchmark"
+""".strip(),
+        encoding="utf-8",
+    )
+
+    config = load_benchmark_config(config_path)
+
+    assert config.artifact_manifest == Path("artifacts/manifest.json")
+
+
 def test_load_integrated_benchmark_manifest() -> None:
     config_path = Path(__file__).resolve().parents[2] / "configs" / "integrated_coordination_benchmark.toml"
     config = load_benchmark_config(config_path)

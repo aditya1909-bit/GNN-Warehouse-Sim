@@ -7,10 +7,17 @@ from pathlib import Path
 
 import pytest
 
+from warehouse_sim.agents import RobotSpec
 from warehouse_sim.config import load_experiment_config
+from warehouse_sim.environment import WarehouseEnvironment
+from warehouse_sim.graph import NodeType, SyntheticGridLayoutConfig, build_synthetic_grid_layout
+from warehouse_sim.integrated.engine import run_integrated_simulation
 from warehouse_sim.integrated.geometry import inflate_obstacles, segment_has_line_of_sight
+from warehouse_sim.integrated.policies import PrioritizedSIPPCoordinatorPolicy
 from warehouse_sim.simulation import run_experiment_from_path
+from warehouse_sim.simulation.models import BatteryRuntimeConfig, CoordinationMode, CoordinationRuntimeConfig, ExecutionModel, SimulationConfig
 from warehouse_sim.simulation.runner import build_experiment_inputs, run_experiment_from_config
+from warehouse_sim.tasks import Task
 
 
 def test_run_integrated_experiment_from_config_path(tmp_path: Path) -> None:
@@ -116,3 +123,41 @@ def test_obstacle_aware_integrated_scenarios_avoid_obstacle_intersections(
         if record.start_x is not None and record.start_y is not None
         and record.end_x is not None and record.end_y is not None
     )
+
+
+def test_integrated_simulation_charges_before_low_battery_task() -> None:
+    environment = WarehouseEnvironment(
+        build_synthetic_grid_layout(
+            SyntheticGridLayoutConfig(
+                rows=2,
+                columns=3,
+                special_node_types={(0, 0): NodeType.STORAGE, (1, 2): NodeType.DROPOFF, (1, 0): NodeType.CHARGING},
+            )
+        )
+    )
+    result = run_integrated_simulation(
+        environment=environment,
+        tasks=(Task(task_id="task_1", release_time=0.0, pickup_node="r0_c0", dropoff_node="r1_c2", service_time_estimate=1.0),),
+        robots=(RobotSpec(robot_id="robot_1", initial_node="r1_c0", battery_capacity=10.0, initial_charge_fraction=0.2),),
+        coordinator_policy=PrioritizedSIPPCoordinatorPolicy(),
+        config=SimulationConfig(
+            coordination_mode=CoordinationMode.INTEGRATED,
+            execution_model=ExecutionModel.IDEALIZED,
+            coordination=CoordinationRuntimeConfig(motion_model="free_space"),
+            battery=BatteryRuntimeConfig(
+                enabled=True,
+                capacity=10.0,
+                initial_charge_fraction=0.2,
+                travel_energy_per_distance=1.0,
+                service_energy=0.0,
+                charge_rate=10.0,
+                dispatch_charge_threshold=0.5,
+                minimum_reserve_fraction=0.1,
+            ),
+        ),
+    )
+
+    assert result.charging_executions
+    assert result.executions
+    assert any(decision.macro_type == "charge_route" for decision in result.macro_decisions)
+    assert result.robot_states[0].battery_depletion_events == 0

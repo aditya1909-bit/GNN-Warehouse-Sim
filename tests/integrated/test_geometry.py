@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from warehouse_sim.environment import obstacle_rectangles_from_blocked_cells
+from warehouse_sim.environment import ObstaclePolygon, obstacle_rectangles_from_blocked_cells
 from warehouse_sim.integrated.geometry import (
     inflate_obstacles,
     polyline_distance,
     segment_has_line_of_sight,
+    visibility_graph_k_shortest_paths,
     visibility_graph_shortest_path,
 )
 
@@ -42,3 +43,21 @@ def test_visibility_graph_shortest_path_routes_around_inflated_obstacle() -> Non
         segment_has_line_of_sight(start, end, obstacles=inflated)
         for start, end in zip(path, path[1:])
     )
+
+
+def test_visibility_graph_k_shortest_paths_returns_multiple_polygon_routes() -> None:
+    obstacle = ObstaclePolygon(
+        obstacle_id="center_block",
+        vertices=((0.75, -0.25), (0.75, 0.25), (1.25, 0.25), (1.25, -0.25)),
+    )
+
+    paths = visibility_graph_k_shortest_paths(
+        (0.0, 0.0),
+        (2.0, 0.0),
+        obstacles=inflate_obstacles((obstacle,), margin=0.05),
+        k=2,
+    )
+
+    assert len(paths) == 2
+    assert paths[0] != paths[1]
+    assert all(len(path) > 2 for path in paths)

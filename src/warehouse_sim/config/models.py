@@ -12,6 +12,7 @@ class ConfigValidationError(ValueError):
 
 GridCoordinate = tuple[int, int]
 DirectedEdgeCoordinate = tuple[GridCoordinate, GridCoordinate]
+Point2D = tuple[float, float]
 
 
 @dataclass(frozen=True)
@@ -25,7 +26,9 @@ class LayoutConfig:
     storage_cell: GridCoordinate = (0, 0)
     dropoff_cell: GridCoordinate = (2, 2)
     staging_cell: GridCoordinate = (2, 0)
+    charging_cells: tuple[GridCoordinate, ...] = ()
     blocked_cells: tuple[GridCoordinate, ...] = ()
+    obstacle_polygons: tuple[tuple[Point2D, ...], ...] = ()
     directed_edges: tuple[DirectedEdgeCoordinate, ...] = ()
 
     def __post_init__(self) -> None:
@@ -33,6 +36,39 @@ class LayoutConfig:
             raise ConfigValidationError("layout.rows must be > 0.")
         if self.columns <= 0:
             raise ConfigValidationError("layout.columns must be > 0.")
+        for polygon in self.obstacle_polygons:
+            if len(polygon) < 3:
+                raise ConfigValidationError("layout.obstacle_polygons must contain at least 3 vertices per polygon.")
+
+
+@dataclass(frozen=True)
+class BatteryConfig:
+    """Declarative battery and charging configuration."""
+
+    enabled: bool = False
+    capacity: float = 100.0
+    initial_charge_fraction: float = 1.0
+    travel_energy_per_distance: float = 1.0
+    service_energy: float = 0.0
+    charge_rate: float = 5.0
+    dispatch_charge_threshold: float = 0.2
+    minimum_reserve_fraction: float = 0.1
+
+    def __post_init__(self) -> None:
+        if self.capacity <= 0:
+            raise ConfigValidationError("battery.capacity must be > 0.")
+        if not 0.0 <= self.initial_charge_fraction <= 1.0:
+            raise ConfigValidationError("battery.initial_charge_fraction must be between 0 and 1.")
+        if self.travel_energy_per_distance < 0:
+            raise ConfigValidationError("battery.travel_energy_per_distance must be >= 0.")
+        if self.service_energy < 0:
+            raise ConfigValidationError("battery.service_energy must be >= 0.")
+        if self.charge_rate <= 0:
+            raise ConfigValidationError("battery.charge_rate must be > 0.")
+        if not 0.0 <= self.dispatch_charge_threshold <= 1.0:
+            raise ConfigValidationError("battery.dispatch_charge_threshold must be between 0 and 1.")
+        if not 0.0 <= self.minimum_reserve_fraction <= 1.0:
+            raise ConfigValidationError("battery.minimum_reserve_fraction must be between 0 and 1.")
 
 
 @dataclass(frozen=True)
@@ -183,6 +219,7 @@ class ExperimentConfig:
     reporting: ReportingConfig
     policy_model: PolicyModelConfig | None = None
     coordination: CoordinationConfig | None = None
+    battery: BatteryConfig | None = None
 
     def __post_init__(self) -> None:
         if not self.name:
