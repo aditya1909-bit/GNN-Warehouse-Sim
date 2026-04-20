@@ -71,3 +71,39 @@ def test_demand_records_can_be_mapped_into_tasks() -> None:
     assert all(task.priority == 2 for task in tasks)
     assert all(task.service_time_estimate == 45.0 for task in tasks)
     assert tasks[0].metadata["regime"] == "base"
+
+
+def test_demand_records_preserve_due_time_when_mapping_into_tasks() -> None:
+    graph = build_synthetic_grid_layout(
+        SyntheticGridLayoutConfig(
+            rows=2,
+            columns=2,
+            zone_labels={(0, 0): "storage_zone", (1, 1): "dropoff_zone"},
+        )
+    )
+    environment = WarehouseEnvironment(graph=graph)
+    demand_result = generate_task_demand(
+        config=DemandGenerationConfig(min_tasks=0),
+        metadata_config=TaskMetadataConfig(
+            task_types=("pick",),
+            source_zones=("storage_zone",),
+            destination_zones=("dropoff_zone",),
+            priorities=(2,),
+            service_duration_low=45.0,
+            service_duration_high=45.0,
+            due_time_slack_low=90.0,
+            due_time_slack_high=90.0,
+        ),
+    )
+
+    tasks = tasks_from_demand_records(
+        records=demand_result.records[:1],
+        environment=environment,
+        config=DemandTaskAdapterConfig(
+            default_pickup_zone="storage_zone",
+            default_dropoff_zone="dropoff_zone",
+        ),
+    )
+
+    assert tasks[0].due_time is not None
+    assert tasks[0].due_time == pytest.approx(tasks[0].release_time + 90.0)

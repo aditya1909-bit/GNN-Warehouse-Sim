@@ -27,6 +27,8 @@ class TaskMetadataConfig:
     priorities: tuple[int, ...] = (1, 2, 3)
     service_duration_low: float = 30.0
     service_duration_high: float = 180.0
+    due_time_slack_low: float | None = None
+    due_time_slack_high: float | None = None
 
     def __post_init__(self) -> None:
         if not self.task_types:
@@ -45,6 +47,20 @@ class TaskMetadataConfig:
             raise DemandValidationError(
                 "service_duration_low must be <= service_duration_high."
             )
+        if (self.due_time_slack_low is None) != (self.due_time_slack_high is None):
+            raise DemandValidationError(
+                "due_time_slack_low and due_time_slack_high must be set together."
+            )
+        if self.due_time_slack_low is not None and self.due_time_slack_low <= 0:
+            raise DemandValidationError("due_time_slack_low must be > 0 when provided.")
+        if self.due_time_slack_high is not None and self.due_time_slack_high <= 0:
+            raise DemandValidationError("due_time_slack_high must be > 0 when provided.")
+        if (
+            self.due_time_slack_low is not None
+            and self.due_time_slack_high is not None
+            and self.due_time_slack_low > self.due_time_slack_high
+        ):
+            raise DemandValidationError("due_time_slack_low must be <= due_time_slack_high.")
 
 
 @dataclass(frozen=True)
@@ -110,4 +126,3 @@ def _windows_overlap(
     second_end: float,
 ) -> bool:
     return max(first_start, second_start) < min(first_end, second_end)
-

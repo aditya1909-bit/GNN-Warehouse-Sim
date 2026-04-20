@@ -22,6 +22,7 @@ SUPPORTED_CANDIDATE_FEATURES = (
     "task_age",
     "task_priority",
     "task_service_time_estimate",
+    "due_time_remaining",
     "robot_speed_multiplier",
     "robot_completed_task_count",
     "robot_total_busy_time",

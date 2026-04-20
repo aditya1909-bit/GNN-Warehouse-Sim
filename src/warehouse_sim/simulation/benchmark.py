@@ -46,6 +46,10 @@ def run_benchmark_from_config(
                     ),
                 )
                 metrics = build_simulation_metric_record(result)
+                artifact_columns = {
+                    f"{label}_path": str(path)
+                    for label, path in written_paths.items()
+                }
                 summary_rows.append(
                     {
                         "metric_schema_version": METRIC_SCHEMA_VERSION,
@@ -74,6 +78,7 @@ def run_benchmark_from_config(
                         "directed_edge_count": len(experiment_config.layout.directed_edges),
                         "topology_difficulty": _topology_difficulty(experiment_config),
                         "summary_path": str(written_paths["summary"]),
+                        **artifact_columns,
                         **metrics,
                     }
                 )

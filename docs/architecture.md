@@ -81,6 +81,6 @@ Stage 12 adds a parallel coordination stack rather than replacing dispatch mode:
 
 ## Still Out Of Scope
 
-- Battery and charging behavior
+- charger-network optimization, battery degradation, and battery-swap logistics
 - obstacle-aware free-space off-graph geometry beyond the current open-plane motion mode
 - global warehouse-level optimal MAPF guarantees across dynamic task allocation and future releases

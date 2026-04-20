@@ -46,7 +46,11 @@ class ContextOnlyPolicy(DispatchPolicy):
 
     name = "context_only"
 
+    def __init__(self) -> None:
+        self.context_calls = 0
+
     def select_assignment_from_context(self, context):  # type: ignore[override]
+        self.context_calls += 1
         assert context.global_observation.ready_task_count == 1
         ready_task = context.task_observations[0]
         idle_robot = context.robot_observations[0]
@@ -65,13 +69,16 @@ def test_run_simulation_uses_dispatch_context_hook() -> None:
         RobotSpec(robot_id="robot_1", initial_node="r0_c0"),
     )
 
+    policy = ContextOnlyPolicy()
+
     result = run_simulation(
         environment=environment,
         tasks=tasks,
         robots=robots,
-        dispatch_policy=ContextOnlyPolicy(),
+        dispatch_policy=policy,
         config=SimulationConfig(),
     )
 
     assert len(result.executions) == 1
     assert result.executions[0].task_id == "task_1"
+    assert policy.context_calls == 1

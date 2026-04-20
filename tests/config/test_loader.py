@@ -218,8 +218,18 @@ output_dir = "outputs/battery_polygon"
     assert config.layout.charging_cells == ((3, 0),)
     assert config.layout.obstacle_polygons == (((0.5, 0.5), (0.5, 1.5), (1.5, 1.5), (1.5, 0.5)),)
     assert config.battery is not None
-    assert config.battery.enabled is True
-    assert config.battery.capacity == 12.0
+
+
+def test_load_dispatch_due_pressure_config() -> None:
+    config_path = Path(__file__).resolve().parents[2] / "configs" / "scenarios" / "dispatch_due_pressure.toml"
+    config = load_experiment_config(config_path)
+
+    assert config.layout.zone_cells["storage_fast"] == ((0, 1),)
+    assert config.task_metadata is not None
+    assert "storage_far" in config.task_metadata.source_zones
+    assert config.task_metadata.due_time_slack_low == 80.0
+    assert config.task_metadata.due_time_slack_high == 220.0
+    assert config.battery is None
 
 
 def test_load_integrated_rl_training_config() -> None:

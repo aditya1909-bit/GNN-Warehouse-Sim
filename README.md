@@ -11,35 +11,35 @@ Warehouse coordination claims are cheap when dispatch, execution, planning, and 
 - Config-driven dispatch and integrated coordination experiments over the same warehouse graph abstraction
 - Graph-conditioned dispatch learning, masked PPO fine-tuning, and an experimental end-to-end macro PPO controller
 - Prioritized SIPP-style coordination, an exact current-epoch MAPF baseline, and continuous-time integrated execution
-- Canonical metric naming, confidence-interval aggregation, claim tables, config snapshots, seed bundles, and artifact manifests
+- Canonical metric naming, paired seed-wise deltas, distinctness audits, claim tables, config snapshots, seed bundles, and artifact manifests
 
-## Headline Empirical Results
+## Current Claim Status
 
-The current canonical artifact bundle supports the following benchmarked comparisons:
+The checked-in artifacts support a narrower story than broad "learning wins" framing. Current status:
 
-| scenario | best baseline | best learned/planner method | uplift | 95% CI | artifact path |
-| --- | --- | --- | --- | --- | --- |
-| `open_low_load` | `fifo` | `congestion_aware_nearest_robot_task` | `3.93%` lower p95 task completion time | `-8.00%` to `+11.20%` | [`outputs/benchmarks/canonical_full_matrix/dispatch/benchmark_claims.csv`](outputs/benchmarks/canonical_full_matrix/dispatch/benchmark_claims.csv) |
-| `narrow_bottleneck` | `random` | `congestion_aware_nearest_robot_task` | `1.32%` lower p95 task completion time | `-0.46%` to `+1.42%` | [`outputs/benchmarks/canonical_full_matrix/dispatch/benchmark_claims.csv`](outputs/benchmarks/canonical_full_matrix/dispatch/benchmark_claims.csv) |
-| `integrated_narrow_bottleneck` | `random_macro` | `optimal_mapf_coordinator` | `11.11%` lower p95 task completion time | `+3.26s` to `+5.95s` | [`outputs/benchmarks/canonical_full_matrix/integrated/benchmark_claims.csv`](outputs/benchmarks/canonical_full_matrix/integrated/benchmark_claims.csv) |
+| family | current status | evidence |
+| --- | --- | --- |
+| Dispatch heuristics | Supported, but scenario-specific | `congestion_aware_nearest_robot_task` improves `open_low_load` p95 task completion time by `3.93%` versus `fifo`. See [`outputs/benchmarks/canonical_full_matrix/dispatch/benchmark_claims.csv`](outputs/benchmarks/canonical_full_matrix/dispatch/benchmark_claims.csv). |
+| Dispatch learned models | Not supported as a headline claim | The learned dispatch family does not beat the strongest heuristic across the current canonical suite. |
+| Integrated planners | Strongest supported result | `optimal_mapf_coordinator` improves `integrated_narrow_bottleneck` p95 task completion time by `11.00%` versus `random_macro`. See [`outputs/benchmarks/canonical_full_matrix/integrated/benchmark_claims.csv`](outputs/benchmarks/canonical_full_matrix/integrated/benchmark_claims.csv). |
+| Integrated macro PPO | Benchmark-gated | The controller clears the safety and completion gates in the checked-in bundle, but its throughput ratio versus baseline is `0.649`, below the `0.9` threshold in [`outputs/canonical_artifacts/macro_ppo/claim_gate.json`](outputs/canonical_artifacts/macro_ppo/claim_gate.json). |
 
-Supported claims from those artifacts:
+Interpretation constraints:
 
-- In `open_low_load`, `congestion_aware_nearest_robot_task` reduced p95 task completion time by `3.93%` versus `fifo`.
-- In `narrow_bottleneck`, `congestion_aware_nearest_robot_task` reduced p95 task completion time by `1.32%` versus `random`.
-- In `integrated_narrow_bottleneck`, `optimal_mapf_coordinator` reduced p95 task completion time by `11.11%` versus `random_macro`.
-
-Constraint on interpretation:
-
-- The canonical dispatch artifacts are now trained from a multi-scenario corpus with scenario-seed splits and benchmark-weighted objectives, but the learned dispatch family still does not beat the strongest heuristic in the current canonical suite.
-- The integrated macro controller now supports planner-guided warm start and best-checkpoint retention, but it remains benchmark-gated because reserved-resource scenarios still produce unacceptable collision counts. See [`outputs/canonical_artifacts/macro_ppo/claim_gate.json`](outputs/canonical_artifacts/macro_ppo/claim_gate.json).
+- Planner claims are currently the clearest positive result surface in the repository.
+- Dispatch results are mixed and should be presented scenario by scenario, not as a blanket superiority claim.
+- The integrated learned controller remains experimental until the benchmark gate is satisfied.
 
 ## Reproducibility Quickstart
 
-Install:
+Create a repo-local environment and install the supported test/runtime contract:
 
 ```bash
+python3 -m venv .venv
+. .venv/bin/activate
+python3 -m pip install --upgrade pip
 python3 -m pip install -e .[dev]
+python3 -m pytest -q
 ```
 
 Build the canonical trained artifact bundle:
@@ -62,18 +62,22 @@ Each benchmark root now writes:
 - `benchmark_policy_aggregates.csv`
 - `benchmark_claims.csv`
 - `benchmark_claims.json`
+- `benchmark_paired_deltas.csv`
+- `policy_distinctness_audit.csv`
 - `benchmark_summary.json`
 - `figures/`
 - `manifest.json`
 - `config_snapshot.toml`
 - `seed_bundle.json`
 
+The scripted path above is the authoritative reproduction route for benchmark claims. The notebooks under [`notebooks/`](notebooks/) are exploratory walkthroughs that reuse the same package APIs and write to repo-relative output roots, but they are not the source of record for headline results.
+
 ## Architecture Overview
 
 - Dispatch stack: heuristics, linear/MLP scorers, graph-conditioned dispatch scoring, masked PPO fine-tuning
 - Execution stack: idealized dispatch execution plus reservation-aware `reserved_edges` and `reserved_nodes` modes
 - Integrated stack: continuous-time macro coordination, prioritized SIPP-style planning, exact current-epoch MAPF routing, optional free-space motion
-- Reporting stack: stable metric schema, aggregate benchmark writer, claim tables, figure outputs, config snapshots, and manifest capture
+- Reporting stack: stable metric schema, aggregate benchmark writer, paired-delta claim analysis, decision-distinctness audits, figure outputs, config snapshots, and manifest capture
 
 ## Benchmark Suite
 
@@ -90,11 +94,24 @@ The canonical scenario family includes:
 - `narrow_bottleneck`
 - `dense_crossing`
 - `high_fleet_density`
+- `dispatch_due_pressure`
 - `integrated_reserved_edges`
 - `integrated_reserved_nodes`
+- `integrated_narrow_bottleneck`
+- `integrated_tight_chokepoint`
 - `integrated_free_space`
 - `unseen_layout_generalization`
 - `unseen_demand_generalization`
+
+The canonical suite now uses ten shared seeds per scenario and writes a visual bundle centered on:
+
+- claim forest plots,
+- per-seed paired-improvement dots,
+- scenario-family small multiples,
+- seen-vs-unseen gap plots,
+- integrated bottleneck mechanism figures,
+- congestion heatmaps,
+- dispatch decision explainers.
 
 Legacy benchmark configs remain useful for narrower checks:
 
@@ -137,6 +154,14 @@ Integrated non-learning policies currently supported:
 - `random_macro`
 
 The integrated stack writes explicit robot trajectories, macro decisions, collision events, planner-plan tables, and charging execution tables so planner and energy behavior are inspectable beyond scalar summary metrics.
+
+## Near-Term Priority
+
+The next research cycle should strengthen the planner-first story rather than expand the learning surface:
+
+- harden reproducibility and benchmark automation first,
+- expand planner-facing analysis around the integrated scenarios that already show a measurable win,
+- defer new learned-control claims until the current benchmark gate and reproducibility story are stronger.
 
 ## Limitations / Honest Caveats
 

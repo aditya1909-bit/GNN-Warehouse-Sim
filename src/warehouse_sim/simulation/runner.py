@@ -6,7 +6,7 @@ from pathlib import Path
 
 from warehouse_sim.agents import RobotSpec
 from warehouse_sim.config import ExperimentConfig, load_experiment_config
-from warehouse_sim.demand import DemandGenerationConfig, generate_task_demand
+from warehouse_sim.demand import DemandGenerationConfig, TaskMetadataConfig, generate_task_demand
 from warehouse_sim.environment import (
     ObstaclePolygon,
     WarehouseEnvironment,
@@ -128,6 +128,11 @@ def build_experiment_inputs(
                 config.layout.storage_cell: "storage_zone",
                 config.layout.dropoff_cell: "dropoff_zone",
                 config.layout.staging_cell: "staging_zone",
+                **{
+                    cell: zone_name
+                    for zone_name, cells in config.layout.zone_cells.items()
+                    for cell in cells
+                },
             },
         )
     )
@@ -158,7 +163,21 @@ def build_experiment_inputs(
             rush_multiplier=config.demand.rush_multiplier,
             lunch_start=_window_start(config.demand.lunch_start, config.demand.horizon_seconds),
             lunch_end=_window_end(config.demand.lunch_end, config.demand.horizon_seconds),
-        )
+        ),
+        metadata_config=(
+            None
+            if config.task_metadata is None
+            else TaskMetadataConfig(
+                task_types=config.task_metadata.task_types,
+                source_zones=config.task_metadata.source_zones,
+                destination_zones=config.task_metadata.destination_zones,
+                priorities=config.task_metadata.priorities,
+                service_duration_low=config.task_metadata.service_duration_low,
+                service_duration_high=config.task_metadata.service_duration_high,
+                due_time_slack_low=config.task_metadata.due_time_slack_low,
+                due_time_slack_high=config.task_metadata.due_time_slack_high,
+            )
+        ),
     )
     tasks = tasks_from_demand_records(
         records=demand.records,

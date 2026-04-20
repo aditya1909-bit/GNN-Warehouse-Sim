@@ -30,6 +30,7 @@ class LayoutConfig:
     blocked_cells: tuple[GridCoordinate, ...] = ()
     obstacle_polygons: tuple[tuple[Point2D, ...], ...] = ()
     directed_edges: tuple[DirectedEdgeCoordinate, ...] = ()
+    zone_cells: dict[str, tuple[GridCoordinate, ...]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.rows <= 0:
@@ -39,6 +40,11 @@ class LayoutConfig:
         for polygon in self.obstacle_polygons:
             if len(polygon) < 3:
                 raise ConfigValidationError("layout.obstacle_polygons must contain at least 3 vertices per polygon.")
+        for zone_name, cells in self.zone_cells.items():
+            if not zone_name:
+                raise ConfigValidationError("layout.zone_cells keys must be non-empty.")
+            if not cells:
+                raise ConfigValidationError("layout.zone_cells entries must contain at least one cell.")
 
 
 @dataclass(frozen=True)
@@ -121,6 +127,56 @@ class TasksConfig:
     default_priority: int = 1
     default_service_time_estimate: float = 60.0
     task_id_prefix: str = "task"
+
+
+@dataclass(frozen=True)
+class TaskMetadataConfig:
+    """Declarative sampling rules for richer task metadata in simulation scenarios."""
+
+    task_types: tuple[str, ...] = ("pick",)
+    source_zones: tuple[str, ...] = ()
+    destination_zones: tuple[str, ...] = ()
+    priorities: tuple[int, ...] = (1,)
+    service_duration_low: float = 30.0
+    service_duration_high: float = 30.0
+    due_time_slack_low: float | None = None
+    due_time_slack_high: float | None = None
+
+    def __post_init__(self) -> None:
+        if not self.task_types:
+            raise ConfigValidationError("task_metadata.task_types must contain at least one value.")
+        if self.source_zones is not None and len(self.source_zones) == 0:
+            raise ConfigValidationError("task_metadata.source_zones must contain at least one value when provided.")
+        if self.destination_zones is not None and len(self.destination_zones) == 0:
+            raise ConfigValidationError(
+                "task_metadata.destination_zones must contain at least one value when provided."
+            )
+        if not self.priorities:
+            raise ConfigValidationError("task_metadata.priorities must contain at least one value.")
+        if self.service_duration_low <= 0:
+            raise ConfigValidationError("task_metadata.service_duration_low must be > 0.")
+        if self.service_duration_high <= 0:
+            raise ConfigValidationError("task_metadata.service_duration_high must be > 0.")
+        if self.service_duration_low > self.service_duration_high:
+            raise ConfigValidationError(
+                "task_metadata.service_duration_low must be <= service_duration_high."
+            )
+        if (self.due_time_slack_low is None) != (self.due_time_slack_high is None):
+            raise ConfigValidationError(
+                "task_metadata.due_time_slack_low and task_metadata.due_time_slack_high must be set together."
+            )
+        if self.due_time_slack_low is not None and self.due_time_slack_low <= 0:
+            raise ConfigValidationError("task_metadata.due_time_slack_low must be > 0 when provided.")
+        if self.due_time_slack_high is not None and self.due_time_slack_high <= 0:
+            raise ConfigValidationError("task_metadata.due_time_slack_high must be > 0 when provided.")
+        if (
+            self.due_time_slack_low is not None
+            and self.due_time_slack_high is not None
+            and self.due_time_slack_low > self.due_time_slack_high
+        ):
+            raise ConfigValidationError(
+                "task_metadata.due_time_slack_low must be <= due_time_slack_high."
+            )
 
 
 @dataclass(frozen=True)
@@ -220,6 +276,7 @@ class ExperimentConfig:
     policy_model: PolicyModelConfig | None = None
     coordination: CoordinationConfig | None = None
     battery: BatteryConfig | None = None
+    task_metadata: TaskMetadataConfig | None = None
 
     def __post_init__(self) -> None:
         if not self.name:

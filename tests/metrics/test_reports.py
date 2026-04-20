@@ -46,6 +46,9 @@ def test_write_simulation_report(tmp_path: Path) -> None:
 
     assert written["summary"].exists()
     assert written["executions"].exists()
+    assert written["dispatch_traces"].exists()
+    assert written["dispatch_node_observations"].exists()
+    assert written["dispatch_arc_observations"].exists()
     assert written["queue_snapshots"].exists()
     assert written["robot_metrics"].exists()
 

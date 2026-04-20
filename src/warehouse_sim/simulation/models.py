@@ -171,6 +171,7 @@ class DispatchTraceRecord:
     task_age: float
     task_priority: int
     task_service_time_estimate: float
+    task_due_time_remaining: float
     task_pickup_node: str
     task_dropoff_node: str
     task_source_zone: str | None

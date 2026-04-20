@@ -99,6 +99,8 @@ def test_optional_metadata_columns_are_appended(tmp_path: Path) -> None:
         priorities=(2,),
         service_duration_low=45.0,
         service_duration_high=45.0,
+        due_time_slack_low=120.0,
+        due_time_slack_high=120.0,
     )
 
     result = generate_task_demand(config=config, metadata_config=metadata_config)
@@ -114,6 +116,7 @@ def test_optional_metadata_columns_are_appended(tmp_path: Path) -> None:
     assert rows[0]["Destination_Zone"] == "pick_station_1"
     assert rows[0]["Priority"] == "2"
     assert rows[0]["Service_Duration"] == "45.0"
+    assert rows[0]["Due_Time"] != ""
 
 
 @pytest.mark.parametrize(

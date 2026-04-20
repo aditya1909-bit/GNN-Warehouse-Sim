@@ -19,6 +19,7 @@ METADATA_CSV_COLUMNS: tuple[str, ...] = (
     "Destination_Zone",
     "Priority",
     "Service_Duration",
+    "Due_Time",
 )
 
 CSV_SCHEMA_DESCRIPTIONS: dict[str, str] = {
@@ -31,6 +32,7 @@ CSV_SCHEMA_DESCRIPTIONS: dict[str, str] = {
     "Destination_Zone": "Optional sampled destination zone for the task.",
     "Priority": "Optional sampled integer priority for dispatching experiments.",
     "Service_Duration": "Optional sampled service duration estimate in seconds.",
+    "Due_Time": "Optional due time in seconds from shift start for lateness-aware dispatch experiments.",
 }
 
 
@@ -47,6 +49,7 @@ class TaskDemandRecord:
     destination_zone: str | None = None
     priority: int | None = None
     service_duration: float | None = None
+    due_time: float | None = None
 
     def to_csv_dict(self, include_metadata: bool = False) -> dict[str, int | float | str]:
         """Convert the record into the explicit CSV schema used by the generator."""
@@ -67,6 +70,7 @@ class TaskDemandRecord:
                     "Service_Duration": (
                         "" if self.service_duration is None else round(self.service_duration, 3)
                     ),
+                    "Due_Time": "" if self.due_time is None else round(self.due_time, 3),
                 }
             )
         return row
@@ -96,4 +100,3 @@ def csv_columns(include_metadata: bool = False) -> tuple[str, ...]:
     if include_metadata:
         return LEGACY_CSV_COLUMNS + METADATA_CSV_COLUMNS
     return LEGACY_CSV_COLUMNS
-

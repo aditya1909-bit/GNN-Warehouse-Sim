@@ -17,6 +17,7 @@ from warehouse_sim.config.models import (
     ReportingConfig,
     RobotsConfig,
     SimulationRunConfig,
+    TaskMetadataConfig,
     TasksConfig,
 )
 
@@ -32,6 +33,7 @@ def load_experiment_config(path: Path) -> ExperimentConfig:
         demand = raw["demand"]
         robots = raw["robots"]
         tasks = raw.get("tasks", {})
+        task_metadata = raw.get("task_metadata")
         simulation = raw.get("simulation", {})
         coordination = raw.get("coordination")
         reporting = raw.get("reporting", {})
@@ -62,6 +64,10 @@ def load_experiment_config(path: Path) -> ExperimentConfig:
                 (_coordinate(edge[0]), _coordinate(edge[1]))
                 for edge in layout.get("directed_edges", [])
             ),
+            zone_cells={
+                str(zone_name): tuple(_coordinate(cell) for cell in cells)
+                for zone_name, cells in layout.get("zone_cells", {}).items()
+            },
         ),
         demand=DemandConfig(
             horizon_seconds=float(demand["horizon_seconds"]),
@@ -132,6 +138,18 @@ def load_experiment_config(path: Path) -> ExperimentConfig:
             charge_rate=float(battery.get("charge_rate", 5.0)),
             dispatch_charge_threshold=float(battery.get("dispatch_charge_threshold", 0.2)),
             minimum_reserve_fraction=float(battery.get("minimum_reserve_fraction", 0.1)),
+        ),
+        task_metadata=None
+        if task_metadata is None
+        else TaskMetadataConfig(
+            task_types=tuple(str(item) for item in task_metadata.get("task_types", ("pick",))),
+            source_zones=tuple(str(item) for item in task_metadata.get("source_zones", ())),
+            destination_zones=tuple(str(item) for item in task_metadata.get("destination_zones", ())),
+            priorities=tuple(int(item) for item in task_metadata.get("priorities", (1,))),
+            service_duration_low=float(task_metadata.get("service_duration_low", 30.0)),
+            service_duration_high=float(task_metadata.get("service_duration_high", 30.0)),
+            due_time_slack_low=_optional_float(task_metadata.get("due_time_slack_low")),
+            due_time_slack_high=_optional_float(task_metadata.get("due_time_slack_high")),
         ),
     )
 

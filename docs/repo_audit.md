@@ -31,6 +31,7 @@ Concrete additions in the latest stage:
 - fitted linear scorer artifact serialization and live loading
 - one modest nonlinear learned baseline over candidate features
 - repeated-seed aggregate benchmark reporting
+- paired seed-wise delta reporting and policy-distinctness audits
 - dispatch-indexed node and arc observation export
 - PyG message-passing graph dispatch scorer
 - masked PPO fine-tuning at dispatch-event boundaries
@@ -39,6 +40,7 @@ Concrete additions in the latest stage:
 - prioritized SIPP-style planner outputs and collision-event reporting
 - exact current-epoch MAPF routing baseline for integrated mode
 - end-to-end macro PPO artifact training and loading
+- mechanism-style planner visuals, congestion heatmaps, and dispatch decision explainers
 
 ## Not Implemented Yet
 
@@ -53,3 +55,5 @@ The repository still does not implement a full warehouse simulator.
 This codebase is now strong enough for both dispatch-centric coordination experiments and an integrated continuous-time coordination stack with centralized planning and experimental end-to-end macro RL.
 
 It should still be described as a modular research scaffold, not as a finished warehouse-operations simulator. Stronger learned end-to-end coordination claims remain benchmark-gated.
+
+Near-term work should favor reproducibility, benchmark hardening, and planner-facing evidence over expanding the learning surface.

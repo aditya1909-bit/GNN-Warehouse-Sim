@@ -5,6 +5,7 @@ scenario_configs = [
   "../scenarios/integrated_reserved_edges.toml",
   "../scenarios/integrated_reserved_nodes.toml",
   "../scenarios/integrated_narrow_bottleneck.toml",
+  "../scenarios/integrated_tight_chokepoint.toml",
   "../scenarios/integrated_high_fleet_density.toml",
   "../scenarios/integrated_free_space.toml",
 ]
@@ -18,4 +19,4 @@ artifact_manifest = "../../outputs/canonical_artifacts/manifest.json"
 output_dir = "../../outputs/benchmarks/canonical_integrated_benchmark"
 write_plots = false
 write_manifest = true
-seeds = [7, 11, 13, 17, 19]
+seeds = [7, 11, 13, 17, 19, 23, 29, 31, 37, 41]

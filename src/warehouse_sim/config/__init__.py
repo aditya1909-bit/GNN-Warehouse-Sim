@@ -31,6 +31,7 @@ from warehouse_sim.config.models import (
     ReportingConfig,
     RobotsConfig,
     SimulationRunConfig,
+    TaskMetadataConfig,
     TasksConfig,
 )
 from warehouse_sim.config.rl_loader import load_rl_fine_tuning_config
@@ -63,6 +64,7 @@ __all__ = [
     "RobotsConfig",
     "RewardConfig",
     "SimulationRunConfig",
+    "TaskMetadataConfig",
     "TasksConfig",
     "load_benchmark_config",
     "load_experiment_config",

@@ -72,6 +72,8 @@ def run_simulation(
         idle_robots = context.idle_robots
 
         while idle_robots:
+            if not build_candidate_assignment_observations(context):
+                break
             decision = dispatch_policy.select_assignment_from_context(context)
             if decision is None:
                 break
@@ -444,6 +446,7 @@ def _build_dispatch_trace_records(
                 task_age=candidate.feature("task_age"),
                 task_priority=int(candidate.feature("task_priority")),
                 task_service_time_estimate=candidate.feature("task_service_time_estimate"),
+                task_due_time_remaining=candidate.feature("due_time_remaining"),
                 task_pickup_node=candidate.task_pickup_node or "",
                 task_dropoff_node=candidate.task_dropoff_node or "",
                 task_source_zone=candidate.task_source_zone,

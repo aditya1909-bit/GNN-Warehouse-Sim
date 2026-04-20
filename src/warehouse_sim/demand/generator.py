@@ -101,6 +101,11 @@ def build_task_demand_records(
                 destination_zone=metadata["destination_zone"],
                 priority=metadata["priority"],
                 service_duration=metadata["service_duration"],
+                due_time=(
+                    None
+                    if metadata["due_time"] is None
+                    else float(timestamp) + float(metadata["due_time"])
+                ),
             )
         )
     return tuple(records)
@@ -185,8 +190,17 @@ def _sample_metadata(
             "destination_zone": None,
             "priority": None,
             "service_duration": None,
+            "due_time": None,
         }
 
+    due_time = None
+    if metadata_config.due_time_slack_low is not None and metadata_config.due_time_slack_high is not None:
+        due_time = float(
+            rng.uniform(
+                metadata_config.due_time_slack_low,
+                metadata_config.due_time_slack_high,
+            )
+        )
     return {
         "task_type": str(rng.choice(metadata_config.task_types)),
         "source_zone": str(rng.choice(metadata_config.source_zones)),
@@ -198,5 +212,5 @@ def _sample_metadata(
                 metadata_config.service_duration_high,
             )
         ),
+        "due_time": due_time,
     }
-

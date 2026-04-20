@@ -74,6 +74,7 @@ def tasks_from_demand_records(
                         if record.service_duration is not None
                         else config.default_service_time_estimate
                     ),
+                    due_time=record.due_time,
                     source_zone=source_zone,
                     destination_zone=destination_zone,
                     metadata={"regime": record.regime},

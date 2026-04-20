@@ -382,6 +382,11 @@ def _candidate_feature_values(
         "task_age": 0.0 if task_observation is None else task_observation.age,
         "task_priority": 0.0 if task_observation is None else float(task_observation.priority),
         "task_service_time_estimate": 0.0 if task_observation is None else task_observation.service_time_estimate,
+        "due_time_remaining": (
+            0.0
+            if task_observation is None or task_observation.due_time_remaining is None
+            else task_observation.due_time_remaining
+        ),
         "robot_speed_multiplier": robot_observation.speed_multiplier,
         "robot_completed_task_count": float(robot_observation.completed_task_count),
         "robot_total_busy_time": robot_observation.total_busy_time,

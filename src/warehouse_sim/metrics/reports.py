@@ -23,6 +23,9 @@ def write_simulation_report(
 
     summary_path = output_dir / "summary.json"
     executions_path = output_dir / "executions.csv"
+    dispatch_traces_path = output_dir / "dispatch_traces.csv"
+    dispatch_nodes_path = output_dir / "dispatch_node_observations.csv"
+    dispatch_arcs_path = output_dir / "dispatch_arc_observations.csv"
     queue_path = output_dir / "queue_snapshots.csv"
     robot_metrics_path = output_dir / "robot_metrics.csv"
     charging_executions_path = output_dir / "charging_executions.csv"
@@ -41,6 +44,9 @@ def write_simulation_report(
     summary_path.write_text(json.dumps(summary_payload, indent=2), encoding="utf-8")
 
     _write_csv(executions_path, [asdict(execution) for execution in result.executions])
+    _write_csv(dispatch_traces_path, [asdict(record) for record in result.dispatch_traces])
+    _write_csv(dispatch_nodes_path, [asdict(record) for record in result.dispatch_node_observations])
+    _write_csv(dispatch_arcs_path, [asdict(record) for record in result.dispatch_arc_observations])
     _write_csv(queue_path, [asdict(snapshot) for snapshot in result.queue_snapshots])
     _write_csv(robot_metrics_path, [asdict(metric) for metric in result.metrics.robot_metrics])
     _write_csv(charging_executions_path, [asdict(record) for record in result.charging_executions])
@@ -52,6 +58,9 @@ def write_simulation_report(
     written = {
         "summary": summary_path,
         "executions": executions_path,
+        "dispatch_traces": dispatch_traces_path,
+        "dispatch_node_observations": dispatch_nodes_path,
+        "dispatch_arc_observations": dispatch_arcs_path,
         "queue_snapshots": queue_path,
         "robot_metrics": robot_metrics_path,
     }

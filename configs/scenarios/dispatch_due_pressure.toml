@@ -1,0 +1,62 @@
+name = "dispatch_due_pressure"
+
+[layout]
+rows = 6
+columns = 6
+edge_length = 1.0
+travel_speed = 1.0
+storage_cell = [0, 0]
+dropoff_cell = [5, 5]
+staging_cell = [5, 0]
+blocked_cells = [[2, 2], [2, 3], [3, 2]]
+directed_edges = []
+
+[layout.zone_cells]
+storage_fast = [[0, 1]]
+storage_far = [[0, 4]]
+dropoff_fast = [[5, 4]]
+dropoff_far = [[4, 5]]
+
+[demand]
+horizon_seconds = 900.0
+mean_interval = 30.0
+seed = 41
+min_tasks = 0
+rush_start = 180.0
+rush_end = 720.0
+lunch_start = 900.0
+lunch_end = 900.0
+rush_multiplier = 2.2
+
+[robots]
+count = 4
+speed_multiplier = 1.0
+initial_zone = "staging_zone"
+
+[tasks]
+default_pickup_zone = "storage_zone"
+default_dropoff_zone = "dropoff_zone"
+default_task_type = "pick"
+default_priority = 1
+default_service_time_estimate = 18.0
+task_id_prefix = "task"
+
+[task_metadata]
+task_types = ["pick"]
+source_zones = ["storage_zone", "storage_fast", "storage_far"]
+destination_zones = ["dropoff_zone", "dropoff_fast", "dropoff_far"]
+priorities = [1, 2, 3]
+service_duration_low = 10.0
+service_duration_high = 35.0
+due_time_slack_low = 80.0
+due_time_slack_high = 220.0
+
+[simulation]
+policy = "fifo"
+horizon_seconds = 900.0
+continue_until_all_tasks_complete = true
+execution_model = "reserved_edges"
+
+[reporting]
+output_dir = "outputs/scenarios/dispatch_due_pressure"
+write_plots = false

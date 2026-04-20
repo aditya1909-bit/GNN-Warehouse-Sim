@@ -7,6 +7,7 @@ scenario_configs = [
   "../scenarios/narrow_bottleneck.toml",
   "../scenarios/dense_crossing.toml",
   "../scenarios/high_fleet_density.toml",
+  "../scenarios/dispatch_due_pressure.toml",
   "../scenarios/unseen_layout_generalization.toml",
   "../scenarios/unseen_demand_generalization.toml",
 ]
@@ -24,4 +25,4 @@ artifact_manifest = "../../outputs/canonical_artifacts/manifest.json"
 output_dir = "../../outputs/benchmarks/canonical_dispatch_benchmark"
 write_plots = false
 write_manifest = true
-seeds = [7, 11, 13, 17, 19]
+seeds = [7, 11, 13, 17, 19, 23, 29, 31, 37, 41]
