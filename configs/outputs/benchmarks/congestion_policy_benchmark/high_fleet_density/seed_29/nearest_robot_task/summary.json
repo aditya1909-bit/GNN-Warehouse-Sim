@@ -1,0 +1,71 @@
+{
+  "experiment_name": "high_fleet_density",
+  "policy_name": "nearest_robot_task",
+  "started_at": 0.0,
+  "finished_at": 558.1879096439447,
+  "metrics": {
+    "tasks_generated": 15,
+    "tasks_completed": 15,
+    "tasks_unassigned": 0,
+    "average_waiting_time": 0.0,
+    "average_turnaround_time": 22.466666666666665,
+    "average_travel_distance_per_task": 7.466666666666667,
+    "realized_travel_time_total": 112.0,
+    "realized_travel_distance_total": 112.0,
+    "congestion_delay_total": 0.0,
+    "average_congestion_delay_per_completed_task": 0.0,
+    "blocked_traversal_events_total": 0,
+    "average_queue_length": 0.0,
+    "throughput_per_hour": 96.74161526437462,
+    "makespan": 558.1879096439447,
+    "robot_metrics": [
+      {
+        "robot_id": "robot_1",
+        "tasks_completed": 10,
+        "utilization": 0.408464597782915,
+        "busy_time": 228.0,
+        "idle_time": 330.18790964394475,
+        "travel_time": 78.0,
+        "travel_distance": 78.0,
+        "congestion_delay_time": 0.0,
+        "blocked_traversal_events": 0
+      },
+      {
+        "robot_id": "robot_2",
+        "tasks_completed": 3,
+        "utilization": 0.1200312633835759,
+        "busy_time": 67.0,
+        "idle_time": 491.18790964394475,
+        "travel_time": 22.0,
+        "travel_distance": 22.0,
+        "congestion_delay_time": 0.0,
+        "blocked_traversal_events": 0
+      },
+      {
+        "robot_id": "robot_3",
+        "tasks_completed": 1,
+        "utilization": 0.03762173926947902,
+        "busy_time": 21.0,
+        "idle_time": 537.1879096439447,
+        "travel_time": 6.0,
+        "travel_distance": 6.0,
+        "congestion_delay_time": 0.0,
+        "blocked_traversal_events": 0
+      },
+      {
+        "robot_id": "robot_4",
+        "tasks_completed": 1,
+        "utilization": 0.03762173926947902,
+        "busy_time": 21.0,
+        "idle_time": 537.1879096439447,
+        "travel_time": 6.0,
+        "travel_distance": 6.0,
+        "congestion_delay_time": 0.0,
+        "blocked_traversal_events": 0
+      }
+    ],
+    "safety_violations_total": 0,
+    "replans_total": 0,
+    "planner_failures_total": 0
+  }
+}

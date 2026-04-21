@@ -1,0 +1,11 @@
+{
+  "benchmark_name": "canonical_dispatch_benchmark_heavy",
+  "parallel_workers": 4,
+  "resume": true,
+  "fail_fast": false,
+  "use_mps_for_learned_policies": false,
+  "completed_jobs": 600,
+  "skipped_jobs": 600,
+  "failed_jobs": [],
+  "total_jobs": 600
+}

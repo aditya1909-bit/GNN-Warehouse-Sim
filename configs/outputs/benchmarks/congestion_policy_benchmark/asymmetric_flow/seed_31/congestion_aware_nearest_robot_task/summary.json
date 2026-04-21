@@ -1,0 +1,60 @@
+{
+  "experiment_name": "asymmetric_flow",
+  "policy_name": "congestion_aware_nearest_robot_task",
+  "started_at": 0.0,
+  "finished_at": 753.1081127171308,
+  "metrics": {
+    "tasks_generated": 12,
+    "tasks_completed": 12,
+    "tasks_unassigned": 0,
+    "average_waiting_time": 0.0,
+    "average_turnaround_time": 38.01592704641573,
+    "average_travel_distance_per_task": 13.0,
+    "realized_travel_time_total": 156.19112455698894,
+    "realized_travel_distance_total": 156.0,
+    "congestion_delay_total": 0.19112455698893882,
+    "average_congestion_delay_per_completed_task": 0.0159270464157449,
+    "blocked_traversal_events_total": 1,
+    "average_queue_length": 0.0,
+    "throughput_per_hour": 57.36228208210263,
+    "makespan": 753.1081127171308,
+    "robot_metrics": [
+      {
+        "robot_id": "robot_1",
+        "tasks_completed": 8,
+        "utilization": 0.40897182595573156,
+        "busy_time": 307.9999999999999,
+        "idle_time": 445.10811271713084,
+        "travel_time": 108.0,
+        "travel_distance": 108.0,
+        "congestion_delay_time": 0.0,
+        "blocked_traversal_events": 0
+      },
+      {
+        "robot_id": "robot_2",
+        "tasks_completed": 2,
+        "utilization": 0.09825946467767581,
+        "busy_time": 74.0,
+        "idle_time": 679.1081127171308,
+        "travel_time": 24.0,
+        "travel_distance": 24.0,
+        "congestion_delay_time": 0.0,
+        "blocked_traversal_events": 0
+      },
+      {
+        "robot_id": "robot_3",
+        "tasks_completed": 2,
+        "utilization": 0.09851324571357434,
+        "busy_time": 74.19112455698894,
+        "idle_time": 678.9169881601418,
+        "travel_time": 24.19112455698894,
+        "travel_distance": 24.0,
+        "congestion_delay_time": 0.19112455698893882,
+        "blocked_traversal_events": 1
+      }
+    ],
+    "safety_violations_total": 0,
+    "replans_total": 0,
+    "planner_failures_total": 0
+  }
+}

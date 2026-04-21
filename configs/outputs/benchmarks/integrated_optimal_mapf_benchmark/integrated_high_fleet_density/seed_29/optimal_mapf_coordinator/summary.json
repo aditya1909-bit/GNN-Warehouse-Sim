@@ -1,0 +1,71 @@
+{
+  "experiment_name": "integrated_high_fleet_density",
+  "policy_name": "optimal_mapf_coordinator",
+  "started_at": 0.0,
+  "finished_at": 535.1879096439447,
+  "metrics": {
+    "tasks_generated": 15,
+    "tasks_completed": 14,
+    "tasks_unassigned": 1,
+    "average_waiting_time": 0.5445298052906075,
+    "average_turnaround_time": 22.973101233862035,
+    "average_travel_distance_per_task": 7.428571428571429,
+    "realized_travel_time_total": 104.0,
+    "realized_travel_distance_total": 104.0,
+    "congestion_delay_total": 0.0,
+    "average_congestion_delay_per_completed_task": 0.0,
+    "blocked_traversal_events_total": 0,
+    "average_queue_length": 0.014244374988105183,
+    "throughput_per_hour": 94.1725309780085,
+    "makespan": 535.1879096439447,
+    "robot_metrics": [
+      {
+        "robot_id": "robot_1",
+        "tasks_completed": 1,
+        "utilization": 0.039238554574170206,
+        "busy_time": 21.0,
+        "idle_time": 381.18790964394475,
+        "travel_time": 6.0,
+        "travel_distance": 6.0,
+        "congestion_delay_time": 0.0,
+        "blocked_traversal_events": 0
+      },
+      {
+        "robot_id": "robot_2",
+        "tasks_completed": 1,
+        "utilization": 0.039238554574170206,
+        "busy_time": 21.0,
+        "idle_time": 427.18790964394475,
+        "travel_time": 6.0,
+        "travel_distance": 6.0,
+        "congestion_delay_time": 0.0,
+        "blocked_traversal_events": 0
+      },
+      {
+        "robot_id": "robot_3",
+        "tasks_completed": 3,
+        "utilization": 0.12518967411759066,
+        "busy_time": 67.0,
+        "idle_time": 262.18790964394475,
+        "travel_time": 22.0,
+        "travel_distance": 22.0,
+        "congestion_delay_time": 0.0,
+        "blocked_traversal_events": 0
+      },
+      {
+        "robot_id": "robot_4",
+        "tasks_completed": 9,
+        "utilization": 0.383043032747852,
+        "busy_time": 205.0,
+        "idle_time": 39.18790964394475,
+        "travel_time": 70.0,
+        "travel_distance": 70.0,
+        "congestion_delay_time": 0.0,
+        "blocked_traversal_events": 0
+      }
+    ],
+    "safety_violations_total": 0,
+    "replans_total": 14,
+    "planner_failures_total": 0
+  }
+}

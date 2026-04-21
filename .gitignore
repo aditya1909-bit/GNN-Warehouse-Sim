@@ -36,7 +36,11 @@ htmlcov/
 
 # Generated project data
 data/*.csv
-outputs/
+outputs/*
+!outputs/benchmarks/
+outputs/benchmarks/*
+!outputs/benchmarks/latest_results/
+!outputs/benchmarks/latest_results/**
 
 #Others
 Class/

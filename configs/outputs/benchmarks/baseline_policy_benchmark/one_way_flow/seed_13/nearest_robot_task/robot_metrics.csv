@@ -1,0 +1,3 @@
+robot_id,tasks_completed,utilization,busy_time,idle_time,travel_time,travel_distance,congestion_delay_time,blocked_traversal_events
+robot_1,6,0.47779683450348387,357.0,390.17950019695434,57.0,57.0,0.0,0
+robot_2,3,0.2368908675269374,177.0,570.1795001969543,27.0,27.0,0.0,0

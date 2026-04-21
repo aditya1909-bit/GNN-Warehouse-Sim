@@ -1,0 +1,71 @@
+{
+  "experiment_name": "high_fleet_density",
+  "policy_name": "fifo",
+  "started_at": 0.0,
+  "finished_at": 558.1879096439447,
+  "metrics": {
+    "tasks_generated": 15,
+    "tasks_completed": 15,
+    "tasks_unassigned": 0,
+    "average_waiting_time": 0.0,
+    "average_turnaround_time": 22.733333333333334,
+    "average_travel_distance_per_task": 7.733333333333333,
+    "realized_travel_time_total": 116.0,
+    "realized_travel_distance_total": 116.0,
+    "congestion_delay_total": 0.0,
+    "average_congestion_delay_per_completed_task": 0.0,
+    "blocked_traversal_events_total": 0,
+    "average_queue_length": 0.0,
+    "throughput_per_hour": 96.74161526437462,
+    "makespan": 558.1879096439447,
+    "robot_metrics": [
+      {
+        "robot_id": "robot_1",
+        "tasks_completed": 11,
+        "utilization": 0.4496693598399635,
+        "busy_time": 251.0,
+        "idle_time": 307.18790964394475,
+        "travel_time": 86.0,
+        "travel_distance": 86.0,
+        "congestion_delay_time": 0.0,
+        "blocked_traversal_events": 0
+      },
+      {
+        "robot_id": "robot_2",
+        "tasks_completed": 4,
+        "utilization": 0.16123602544062435,
+        "busy_time": 90.0,
+        "idle_time": 468.18790964394475,
+        "travel_time": 30.0,
+        "travel_distance": 30.0,
+        "congestion_delay_time": 0.0,
+        "blocked_traversal_events": 0
+      },
+      {
+        "robot_id": "robot_3",
+        "tasks_completed": 0,
+        "utilization": 0.0,
+        "busy_time": 0.0,
+        "idle_time": 558.1879096439447,
+        "travel_time": 0.0,
+        "travel_distance": 0.0,
+        "congestion_delay_time": 0.0,
+        "blocked_traversal_events": 0
+      },
+      {
+        "robot_id": "robot_4",
+        "tasks_completed": 0,
+        "utilization": 0.0,
+        "busy_time": 0.0,
+        "idle_time": 558.1879096439447,
+        "travel_time": 0.0,
+        "travel_distance": 0.0,
+        "congestion_delay_time": 0.0,
+        "blocked_traversal_events": 0
+      }
+    ],
+    "safety_violations_total": 0,
+    "replans_total": 0,
+    "planner_failures_total": 0
+  }
+}

@@ -30,6 +30,26 @@ Interpretation constraints:
 - Dispatch results are mixed and should be presented scenario by scenario, not as a blanket superiority claim.
 - The integrated learned controller remains experimental until the benchmark gate is satisfied.
 
+## Latest Heavy Results
+
+The latest GitHub-ready heavy benchmark bundle is packaged under [outputs/benchmarks/latest_results](/Users/adityadutta/Developer/GNN-Warehouse-Sim/outputs/benchmarks/latest_results/README.md).
+
+Current heavy-result read:
+
+- Heavy dispatch only clearly separates policies in `dispatch_due_pressure_heavy`, and the winner is still `congestion_aware_nearest_robot_task`.
+- Heavy integrated strengthens the planner-first story under contention, especially in `integrated_narrow_bottleneck` and `integrated_tight_chokepoint_heavy`.
+- `trained_end_to_end_macro_ppo` is mixed:
+  - promising on `integrated_high_fleet_density_heavy`
+  - still weaker than the planners in the hardest chokepoint regime
+  - still partially aligned with planner behavior in easier regimes
+
+Recommended figures from the packaged bundle:
+
+- [Dispatch claim forest](</Users/adityadutta/Developer/GNN-Warehouse-Sim/outputs/benchmarks/latest_results/dispatch_heavy/figures/claim_forest_plot.png>)
+- [Dispatch decision explainer](</Users/adityadutta/Developer/GNN-Warehouse-Sim/outputs/benchmarks/latest_results/dispatch_heavy/figures/dispatch_decision_explainer.png>)
+- [Integrated claim forest](</Users/adityadutta/Developer/GNN-Warehouse-Sim/outputs/benchmarks/latest_results/integrated_heavy/figures/claim_forest_plot.png>)
+- [Integrated bottleneck mechanism](</Users/adityadutta/Developer/GNN-Warehouse-Sim/outputs/benchmarks/latest_results/integrated_heavy/figures/integrated_narrow_bottleneck_mechanism.png>)
+
 ## Reproducibility Quickstart
 
 Create a repo-local environment and install the supported test/runtime contract:

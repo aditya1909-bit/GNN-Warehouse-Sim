@@ -1,0 +1,11 @@
+{
+  "benchmark_name": "canonical_integrated_benchmark_heavy",
+  "parallel_workers": 8,
+  "resume": true,
+  "fail_fast": false,
+  "use_mps_for_learned_policies": false,
+  "completed_jobs": 400,
+  "skipped_jobs": 0,
+  "failed_jobs": [],
+  "total_jobs": 400
+}

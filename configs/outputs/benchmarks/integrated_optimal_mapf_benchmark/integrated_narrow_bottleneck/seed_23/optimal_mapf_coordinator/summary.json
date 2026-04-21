@@ -1,0 +1,60 @@
+{
+  "experiment_name": "integrated_narrow_bottleneck",
+  "policy_name": "optimal_mapf_coordinator",
+  "started_at": 0.0,
+  "finished_at": 638.0,
+  "metrics": {
+    "tasks_generated": 11,
+    "tasks_completed": 11,
+    "tasks_unassigned": 0,
+    "average_waiting_time": 0.34682932601041455,
+    "average_turnaround_time": 35.25592023510132,
+    "average_travel_distance_per_task": 14.909090909090908,
+    "realized_travel_time_total": 164.0,
+    "realized_travel_distance_total": 164.0,
+    "congestion_delay_total": 0.0,
+    "average_congestion_delay_per_completed_task": 0.0,
+    "blocked_traversal_events_total": 0,
+    "average_queue_length": 0.005979815965696802,
+    "throughput_per_hour": 62.06896551724138,
+    "makespan": 638.0,
+    "robot_metrics": [
+      {
+        "robot_id": "robot_1",
+        "tasks_completed": 2,
+        "utilization": 0.10658307210031348,
+        "busy_time": 68.0,
+        "idle_time": 344.0,
+        "travel_time": 28.0,
+        "travel_distance": 28.0,
+        "congestion_delay_time": 0.0,
+        "blocked_traversal_events": 0
+      },
+      {
+        "robot_id": "robot_2",
+        "tasks_completed": 4,
+        "utilization": 0.219435736677116,
+        "busy_time": 140.0,
+        "idle_time": 0.0,
+        "travel_time": 60.0,
+        "travel_distance": 60.0,
+        "congestion_delay_time": 0.0,
+        "blocked_traversal_events": 0
+      },
+      {
+        "robot_id": "robot_3",
+        "tasks_completed": 5,
+        "utilization": 0.27586206896551724,
+        "busy_time": 176.0,
+        "idle_time": 1.0,
+        "travel_time": 76.0,
+        "travel_distance": 76.0,
+        "congestion_delay_time": 0.0,
+        "blocked_traversal_events": 0
+      }
+    ],
+    "safety_violations_total": 0,
+    "replans_total": 11,
+    "planner_failures_total": 0
+  }
+}

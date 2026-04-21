@@ -1,0 +1,49 @@
+{
+  "experiment_name": "blocked_cross_aisle",
+  "policy_name": "nearest_robot_task",
+  "started_at": 0.0,
+  "finished_at": 876.8581577755994,
+  "metrics": {
+    "tasks_generated": 11,
+    "tasks_completed": 11,
+    "tasks_unassigned": 0,
+    "average_waiting_time": 5.980386133353937,
+    "average_turnaround_time": 77.43493158789938,
+    "average_travel_distance_per_task": 11.454545454545455,
+    "realized_travel_time_total": 126.0,
+    "realized_travel_distance_total": 126.0,
+    "congestion_delay_total": 0.0,
+    "average_congestion_delay_per_completed_task": 0.0,
+    "blocked_traversal_events_total": 0,
+    "average_queue_length": 0.0750226782787467,
+    "throughput_per_hour": 45.161238050697605,
+    "makespan": 876.8581577755994,
+    "robot_metrics": [
+      {
+        "robot_id": "robot_1",
+        "tasks_completed": 7,
+        "utilization": 0.5713580874595833,
+        "busy_time": 501.0,
+        "idle_time": 375.85815777559935,
+        "travel_time": 81.0,
+        "travel_distance": 81.0,
+        "congestion_delay_time": 0.0,
+        "blocked_traversal_events": 0
+      },
+      {
+        "robot_id": "robot_2",
+        "tasks_completed": 4,
+        "utilization": 0.3250240617285054,
+        "busy_time": 284.99999999999994,
+        "idle_time": 591.8581577755995,
+        "travel_time": 45.0,
+        "travel_distance": 45.0,
+        "congestion_delay_time": 0.0,
+        "blocked_traversal_events": 0
+      }
+    ],
+    "safety_violations_total": 0,
+    "replans_total": 0,
+    "planner_failures_total": 0
+  }
+}
