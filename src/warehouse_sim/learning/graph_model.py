@@ -149,5 +149,6 @@ def load_graph_dispatch_model(artifact_path: Path, device: torch.device | str = 
     state_path = artifact_path.parent / str(parameters["state_dict_path"])
     state_dict = torch.load(state_path, map_location=device)
     model.load_state_dict(state_dict)
+    model.to(device)
     model.eval()
     return LoadedGraphDispatchModel(artifact=artifact, model=model)

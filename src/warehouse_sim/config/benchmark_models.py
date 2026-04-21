@@ -22,6 +22,10 @@ class BenchmarkConfig:
     seeds: tuple[int, ...] | None = None
     policy_artifacts: dict[str, Path] = field(default_factory=dict)
     artifact_manifest: Path | None = None
+    parallel_workers: int | None = None
+    resume: bool = True
+    fail_fast: bool = False
+    use_mps_for_learned_policies: bool = False
 
     def __post_init__(self) -> None:
         if not self.name:
@@ -34,3 +38,5 @@ class BenchmarkConfig:
             raise ConfigValidationError("benchmark.scenario_family must be non-empty.")
         if self.seeds is not None and not self.seeds:
             raise ConfigValidationError("benchmark.seeds must be non-empty.")
+        if self.parallel_workers is not None and self.parallel_workers <= 0:
+            raise ConfigValidationError("benchmark.parallel_workers must be > 0 when provided.")

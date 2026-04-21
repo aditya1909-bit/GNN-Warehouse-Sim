@@ -83,6 +83,10 @@ class MacroDecisionRecord:
     route_edges: tuple[str, ...]
     estimated_completion_time: float
     selected_by_policy: str
+    candidate_count: int = 0
+    selected_rank_by_estimated_completion: int = 0
+    best_candidate_estimated_completion: float = 0.0
+    selected_completion_gap: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -112,6 +116,9 @@ class PlannerPlanRecord:
     planned_end_time: float
     planner_name: str
     status: str
+    pre_resolution_conflict_count: int = 0
+    wait_insertion_count: int = 0
+    wait_insertion_time: float = 0.0
 
 
 @dataclass

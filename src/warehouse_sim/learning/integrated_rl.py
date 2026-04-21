@@ -17,8 +17,10 @@ from warehouse_sim.config import ExperimentConfig, IntegratedRLTrainingConfig, l
 from warehouse_sim.integrated.engine import (
     _ActivePlan,
     _build_occupancy_table,
+    _count_pre_resolution_conflicts,
     _detect_motion_collisions,
     _finalize_completed_plans,
+    _macro_selection_diagnostics,
     _next_integrated_event_time,
     _record_queue_snapshot,
     _release_ready_tasks,
@@ -101,25 +103,27 @@ class EndToEndMacroPolicyNetwork(nn.Module):
         )
 
     def encode_graph(self, observation: IntegratedObservation) -> torch.Tensor:
-        node_features = torch.tensor(observation.node_features, dtype=torch.float32)
-        edge_features = torch.tensor(observation.edge_features, dtype=torch.float32)
-        edge_index = torch.tensor(observation.edge_index, dtype=torch.long).T.contiguous()
+        device = self._device()
+        node_features = torch.tensor(observation.node_features, dtype=torch.float32, device=device)
+        edge_features = torch.tensor(observation.edge_features, dtype=torch.float32, device=device)
+        edge_index = torch.tensor(observation.edge_index, dtype=torch.long, device=device).T.contiguous()
         x = self.node_encoder(node_features)
         edge_attr = self.edge_encoder(edge_features)
         x = torch.relu(self.conv(x, edge_index, edge_attr))
         return x.mean(dim=0)
 
     def act(self, observation: IntegratedObservation, greedy: bool = False) -> IntegratedPolicyOutput:
+        device = self._device()
         graph_embedding = self.encode_graph(observation)
         used_tasks: set[str] = set()
         chosen_indices: list[int] = []
-        log_prob_total = torch.tensor(0.0)
+        log_prob_total = torch.tensor(0.0, device=device)
         for robot_index, candidates in enumerate(observation.macro_candidates):
             robot_embedding = self.robot_encoder(
-                torch.tensor(observation.robot_features[robot_index], dtype=torch.float32)
+                torch.tensor(observation.robot_features[robot_index], dtype=torch.float32, device=device)
             )
             candidate_matrix = torch.stack(
-                [self.macro_encoder(_macro_feature_tensor(observation, candidate)) for candidate in candidates]
+                [self.macro_encoder(_macro_feature_tensor(observation, candidate, device=device)) for candidate in candidates]
             )
             repeated_graph = graph_embedding.unsqueeze(0).expand(candidate_matrix.shape[0], -1)
             repeated_robot = robot_embedding.unsqueeze(0).expand(candidate_matrix.shape[0], -1)
@@ -127,12 +131,13 @@ class EndToEndMacroPolicyNetwork(nn.Module):
             mask = torch.tensor(
                 [candidate.task_id is None or candidate.task_id not in used_tasks for candidate in candidates],
                 dtype=torch.bool,
+                device=device,
             )
             masked_logits = logits.masked_fill(~mask, float("-inf"))
             distribution = torch.distributions.Categorical(logits=masked_logits)
             index = int(torch.argmax(masked_logits).item()) if greedy else int(distribution.sample().item())
             chosen_indices.append(index)
-            log_prob_total = log_prob_total + distribution.log_prob(torch.tensor(index))
+            log_prob_total = log_prob_total + distribution.log_prob(torch.tensor(index, device=device))
             task_id = candidates[index].task_id
             if task_id is not None:
                 used_tasks.add(task_id)
@@ -144,16 +149,17 @@ class EndToEndMacroPolicyNetwork(nn.Module):
         )
 
     def evaluate(self, observation: IntegratedObservation, chosen_indices: tuple[int, ...]) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        device = self._device()
         graph_embedding = self.encode_graph(observation)
         used_tasks: set[str] = set()
-        log_prob_total = torch.tensor(0.0)
-        entropy_total = torch.tensor(0.0)
+        log_prob_total = torch.tensor(0.0, device=device)
+        entropy_total = torch.tensor(0.0, device=device)
         for robot_index, candidates in enumerate(observation.macro_candidates):
             robot_embedding = self.robot_encoder(
-                torch.tensor(observation.robot_features[robot_index], dtype=torch.float32)
+                torch.tensor(observation.robot_features[robot_index], dtype=torch.float32, device=device)
             )
             candidate_matrix = torch.stack(
-                [self.macro_encoder(_macro_feature_tensor(observation, candidate)) for candidate in candidates]
+                [self.macro_encoder(_macro_feature_tensor(observation, candidate, device=device)) for candidate in candidates]
             )
             repeated_graph = graph_embedding.unsqueeze(0).expand(candidate_matrix.shape[0], -1)
             repeated_robot = robot_embedding.unsqueeze(0).expand(candidate_matrix.shape[0], -1)
@@ -161,11 +167,12 @@ class EndToEndMacroPolicyNetwork(nn.Module):
             mask = torch.tensor(
                 [candidate.task_id is None or candidate.task_id not in used_tasks for candidate in candidates],
                 dtype=torch.bool,
+                device=device,
             )
             masked_logits = logits.masked_fill(~mask, float("-inf"))
             distribution = torch.distributions.Categorical(logits=masked_logits)
             index = chosen_indices[robot_index]
-            log_prob_total = log_prob_total + distribution.log_prob(torch.tensor(index))
+            log_prob_total = log_prob_total + distribution.log_prob(torch.tensor(index, device=device))
             entropy_total = entropy_total + distribution.entropy()
             task_id = candidates[index].task_id
             if task_id is not None:
@@ -174,15 +181,21 @@ class EndToEndMacroPolicyNetwork(nn.Module):
         return log_prob_total, value, entropy_total
 
     def value(self, observation: IntegratedObservation, graph_embedding: torch.Tensor | None = None) -> torch.Tensor:
+        device = self._device()
         if graph_embedding is None:
             graph_embedding = self.encode_graph(observation)
-        robot_tensor = torch.tensor(observation.robot_features, dtype=torch.float32)
+        robot_tensor = torch.tensor(observation.robot_features, dtype=torch.float32, device=device)
         robot_embedding = self.robot_encoder(robot_tensor).mean(dim=0)
         if observation.task_features:
-            task_embedding = self.task_encoder(torch.tensor(observation.task_features, dtype=torch.float32)).mean(dim=0)
+            task_embedding = self.task_encoder(
+                torch.tensor(observation.task_features, dtype=torch.float32, device=device)
+            ).mean(dim=0)
         else:
             task_embedding = torch.zeros_like(graph_embedding)
         return self.value_head(torch.cat([graph_embedding, robot_embedding, task_embedding], dim=-1)).squeeze(-1)
+
+    def _device(self) -> torch.device:
+        return next(self.parameters()).device
 
 
 @dataclass(frozen=True)
@@ -206,6 +219,7 @@ def load_end_to_end_macro_model(path: Path, device: torch.device | str = "cpu") 
     )
     state_path = path.parent / str(parameters["state_dict_path"])
     model.load_state_dict(torch.load(state_path, map_location=device))
+    model.to(device)
     model.eval()
     return LoadedEndToEndMacroModel(artifact=artifact, model=model)
 
@@ -263,6 +277,15 @@ class IntegratedCoordinationRLEnv:
         decision_index = len(self._macro_decisions)
         plan_index = len(self._planner_plans)
         observation = self._observation()
+        pre_resolution_conflict_count = _count_pre_resolution_conflicts(
+            environment=self._environment,
+            observation=observation,
+            output=IntegratedPolicyOutput(chosen_indices=chosen_indices),
+            robot_states=self._robot_states,
+            occupancy=self._occupancy,
+            current_time=self._current_time,
+            config=self._simulation_config,
+        )
         used_tasks: set[str] = set()
         for robot_index, robot in enumerate(self._robot_states):
             candidates = observation.macro_candidates[robot_index]
@@ -273,6 +296,11 @@ class IntegratedCoordinationRLEnv:
             if candidate.task_id is not None and candidate.task_id in used_tasks:
                 candidate = candidates[0]
                 chosen_index = 0
+            (
+                selection_rank,
+                best_candidate_estimated_completion,
+                selected_completion_gap,
+            ) = _macro_selection_diagnostics(candidates, chosen_index)
             self._macro_decisions.append(
                 MacroDecisionRecord(
                     decision_index=decision_index,
@@ -285,6 +313,10 @@ class IntegratedCoordinationRLEnv:
                     route_edges=tuple(f"{source}->{target}" for source, target in candidate.route_edges),
                     estimated_completion_time=candidate.estimated_completion_time,
                     selected_by_policy="trained_end_to_end_macro_ppo",
+                    candidate_count=len(candidates),
+                    selected_rank_by_estimated_completion=selection_rank,
+                    best_candidate_estimated_completion=best_candidate_estimated_completion,
+                    selected_completion_gap=selected_completion_gap,
                 )
             )
             decision_index += 1
@@ -321,6 +353,7 @@ class IntegratedCoordinationRLEnv:
                         planned_end_time=self._current_time,
                         planner_name="trained_end_to_end_macro_ppo",
                         status="failed",
+                        pre_resolution_conflict_count=pre_resolution_conflict_count,
                     )
                 )
                 plan_index += 1
@@ -356,6 +389,9 @@ class IntegratedCoordinationRLEnv:
                     planned_end_time=planned.completion_time,
                     planner_name="trained_end_to_end_macro_ppo",
                     status="planned",
+                    pre_resolution_conflict_count=pre_resolution_conflict_count,
+                    wait_insertion_count=planned.blocked_events,
+                    wait_insertion_time=planned.wait_time,
                 )
             )
             plan_index += 1
@@ -803,7 +839,12 @@ def _gate_selection_key(payload: dict[str, object]) -> tuple[float, float, float
     )
 
 
-def _macro_feature_tensor(observation: IntegratedObservation, candidate) -> torch.Tensor:
+def _macro_feature_tensor(
+    observation: IntegratedObservation,
+    candidate,
+    *,
+    device: torch.device | None = None,
+) -> torch.Tensor:
     route_time = 0.0
     if candidate.route_nodes:
         route_time = max(candidate.estimated_completion_time - observation.current_time, 0.0)
@@ -819,6 +860,7 @@ def _macro_feature_tensor(observation: IntegratedObservation, candidate) -> torc
             1.0 if candidate.task_id is not None else 0.0,
         ],
         dtype=torch.float32,
+        device=device,
     )
 
 

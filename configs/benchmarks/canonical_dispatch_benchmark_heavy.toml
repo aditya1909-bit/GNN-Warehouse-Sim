@@ -1,0 +1,22 @@
+[benchmark]
+name = "canonical_dispatch_benchmark_heavy"
+scenario_family = "canonical_dispatch_heavy"
+scenario_configs = [
+  "../scenarios/open_high_load.toml",
+  "../scenarios/dispatch_due_pressure_heavy.toml",
+  "../scenarios/dense_crossing_heavy.toml",
+  "../scenarios/high_fleet_density.toml",
+]
+policies = [
+  "fifo",
+  "nearest_robot_task",
+  "congestion_aware_nearest_robot_task",
+  "trained_linear_model",
+  "trained_mlp_model",
+  "trained_graph_dispatch_model",
+]
+artifact_manifest = "../../outputs/canonical_artifacts/manifest.json"
+output_dir = "../../outputs/benchmarks/canonical_dispatch_benchmark_heavy"
+write_plots = false
+write_manifest = true
+seeds = [7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89, 97, 101, 103, 107]

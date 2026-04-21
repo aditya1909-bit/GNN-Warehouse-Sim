@@ -148,6 +148,7 @@ def load_experiment_config(path: Path) -> ExperimentConfig:
             priorities=tuple(int(item) for item in task_metadata.get("priorities", (1,))),
             service_duration_low=float(task_metadata.get("service_duration_low", 30.0)),
             service_duration_high=float(task_metadata.get("service_duration_high", 30.0)),
+            due_time_slacks=tuple(float(item) for item in task_metadata.get("due_time_slacks", ())),
             due_time_slack_low=_optional_float(task_metadata.get("due_time_slack_low")),
             due_time_slack_high=_optional_float(task_metadata.get("due_time_slack_high")),
         ),

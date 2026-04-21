@@ -41,6 +41,7 @@ class DispatchPolicy(ABC):
     """Abstract base class for task-dispatch policies."""
 
     name: str
+    policy_score_label: str = "selection_score"
 
     def select_assignment_from_context(self, context: DispatchContext) -> DispatchDecision | None:
         """Select an assignment from a rich dispatch-time observation.
@@ -55,6 +56,11 @@ class DispatchPolicy(ABC):
             ready_tasks=context.ready_tasks,
             environment=context.environment,
         )
+
+    def score_assignment_candidates_from_context(self, context: DispatchContext, candidates) -> tuple[float | None, ...] | None:
+        """Return per-candidate scores aligned with the policy's actual selection rule when available."""
+
+        return None
 
     @abstractmethod
     def select_assignment(

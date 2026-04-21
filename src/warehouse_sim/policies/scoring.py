@@ -81,6 +81,7 @@ class LinearScoringDispatchPolicy(DispatchPolicy):
     """Observation-driven dispatch policy using a linear candidate scorer."""
 
     name = "linear_assignment_model"
+    policy_score_label = "linear_model_score"
 
     def __init__(self, weights: dict[str, float], bias: float = 0.0) -> None:
         validate_candidate_weights(weights)
@@ -108,6 +109,9 @@ class LinearScoringDispatchPolicy(DispatchPolicy):
             "LinearScoringDispatchPolicy requires dispatch contexts and should not use the legacy selection path."
         )
 
+    def score_assignment_candidates_from_context(self, context, candidates):  # type: ignore[override]
+        return tuple(candidate.linear_score(self._weights, self._bias) for candidate in candidates)
+
 
 class ArtifactScoringDispatchPolicy(DispatchPolicy):
     """Dispatch policy backed by a trained artifact scorer."""
@@ -115,6 +119,7 @@ class ArtifactScoringDispatchPolicy(DispatchPolicy):
     def __init__(self, artifact: DispatchModelArtifact, policy_name: str) -> None:
         self.name = policy_name
         self._artifact = artifact
+        self.policy_score_label = f"{artifact.model_type}_score"
 
     def select_assignment_from_context(self, context: DispatchContext) -> DispatchDecision | None:
         candidates = build_candidate_assignment_observations(context)
@@ -137,11 +142,23 @@ class ArtifactScoringDispatchPolicy(DispatchPolicy):
             "ArtifactScoringDispatchPolicy requires dispatch contexts and should not use the legacy selection path."
         )
 
+    def score_assignment_candidates_from_context(self, context, candidates):  # type: ignore[override]
+        feature_matrix = np.asarray(
+            [
+                [candidate.feature(feature_name) for feature_name in self._artifact.feature_names]
+                for candidate in candidates
+            ],
+            dtype=float,
+        )
+        scores = self._artifact.score_matrix(feature_matrix)
+        return tuple(float(value) for value in scores)
+
 
 class GraphDispatchArtifactPolicy(DispatchPolicy):
     """Dispatch policy backed by a trained PyG graph-conditioned scorer."""
 
     name = "trained_graph_dispatch_model"
+    policy_score_label = "graph_dispatch_logit"
 
     def __init__(
         self,
@@ -155,6 +172,10 @@ class GraphDispatchArtifactPolicy(DispatchPolicy):
         self._candidate_feature_names = candidate_feature_names
         self._node_feature_names = node_feature_names
         self._edge_feature_names = edge_feature_names
+
+    def _device(self):
+        torch = require_dependency("torch", feature="trained graph-dispatch policy inference")
+        return next(self._model.parameters(), torch.empty((), device="cpu")).device
 
     def select_assignment_from_context(self, context: DispatchContext) -> DispatchDecision | None:
         candidates = build_candidate_assignment_observations(context)
@@ -170,12 +191,13 @@ class GraphDispatchArtifactPolicy(DispatchPolicy):
             edge_feature_names=self._edge_feature_names,
             dispatch_group_id="live::dispatch",
         )
+        device = self._device()
         with torch.no_grad():
             logits, _ = self._model(
-                node_features=torch.tensor(example.node_features, dtype=torch.float32),
-                edge_index=torch.tensor(example.edge_index, dtype=torch.long),
-                edge_features=torch.tensor(example.edge_features, dtype=torch.float32),
-                candidate_features=torch.tensor(example.candidate_features, dtype=torch.float32),
+                node_features=torch.tensor(example.node_features, dtype=torch.float32, device=device),
+                edge_index=torch.tensor(example.edge_index, dtype=torch.long, device=device),
+                edge_features=torch.tensor(example.edge_features, dtype=torch.float32, device=device),
+                candidate_features=torch.tensor(example.candidate_features, dtype=torch.float32, device=device),
             )
         scores = logits.detach().cpu().numpy()
         best_candidate = _select_best_candidate(candidates, scores)
@@ -185,6 +207,27 @@ class GraphDispatchArtifactPolicy(DispatchPolicy):
         raise CandidateScoringError(
             "GraphDispatchArtifactPolicy requires dispatch contexts and should not use the legacy selection path."
         )
+
+    def score_assignment_candidates_from_context(self, context, candidates):  # type: ignore[override]
+        torch = require_dependency("torch", feature="trained graph-dispatch policy inference")
+        example = build_graph_dispatch_example_from_context(
+            context,
+            dispatch_index=0,
+            candidate_feature_names=self._candidate_feature_names,
+            node_feature_names=self._node_feature_names,
+            edge_feature_names=self._edge_feature_names,
+            dispatch_group_id="live::dispatch",
+        )
+        device = self._device()
+        with torch.no_grad():
+            logits, _ = self._model(
+                node_features=torch.tensor(example.node_features, dtype=torch.float32, device=device),
+                edge_index=torch.tensor(example.edge_index, dtype=torch.long, device=device),
+                edge_features=torch.tensor(example.edge_features, dtype=torch.float32, device=device),
+                candidate_features=torch.tensor(example.candidate_features, dtype=torch.float32, device=device),
+            )
+        scores = logits.detach().cpu().numpy()
+        return tuple(float(value) for value in scores)
 
 
 def build_candidate_assignment_observations(

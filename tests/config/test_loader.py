@@ -227,8 +227,9 @@ def test_load_dispatch_due_pressure_config() -> None:
     assert config.layout.zone_cells["storage_fast"] == ((0, 1),)
     assert config.task_metadata is not None
     assert "storage_far" in config.task_metadata.source_zones
-    assert config.task_metadata.due_time_slack_low == 80.0
-    assert config.task_metadata.due_time_slack_high == 220.0
+    assert config.task_metadata.due_time_slacks == (75.0, 140.0, 220.0)
+    assert config.task_metadata.due_time_slack_low is None
+    assert config.task_metadata.due_time_slack_high is None
     assert config.battery is None
 
 

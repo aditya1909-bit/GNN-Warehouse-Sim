@@ -53,3 +53,10 @@ class SimulationMetrics:
     safety_violations_total: int = 0
     replans_total: int = 0
     planner_failures_total: int = 0
+    on_time_completion_rate: float | None = None
+    mean_tardiness: float | None = None
+    p95_tardiness: float | None = None
+    overdue_task_count: int = 0
+    planner_wait_time_total: float = 0.0
+    path_conflicts_before_resolution_total: int = 0
+    sipp_wait_insertions_total: int = 0

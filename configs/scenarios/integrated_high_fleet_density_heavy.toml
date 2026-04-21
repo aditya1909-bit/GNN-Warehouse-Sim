@@ -1,0 +1,55 @@
+name = "integrated_high_fleet_density_heavy"
+
+[layout]
+rows = 8
+columns = 8
+edge_length = 1.0
+travel_speed = 1.0
+storage_cell = [0, 0]
+dropoff_cell = [7, 7]
+staging_cell = [7, 0]
+blocked_cells = [[3, 3], [3, 4], [4, 3], [4, 4]]
+directed_edges = []
+
+[demand]
+horizon_seconds = 1800.0
+mean_interval = 24.0
+seed = 67
+min_tasks = 0
+rush_start = 120.0
+rush_end = 1680.0
+lunch_start = 1800.0
+lunch_end = 1800.0
+rush_multiplier = 2.4
+
+[robots]
+count = 16
+speed_multiplier = 1.0
+initial_zone = "staging_zone"
+
+[tasks]
+default_pickup_zone = "storage_zone"
+default_dropoff_zone = "dropoff_zone"
+default_task_type = "pick"
+default_priority = 1
+default_service_time_estimate = 16.0
+task_id_prefix = "task"
+
+[simulation]
+coordination_mode = "integrated"
+policy = "prioritized_sipp_coordinator"
+horizon_seconds = 1800.0
+continue_until_all_tasks_complete = true
+execution_model = "idealized"
+
+[coordination]
+control_dt = 0.25
+replan_period = 0.5
+robot_radius = 0.2
+collision_clearance = 0.05
+k_shortest_paths = 4
+max_route_options_per_pair = 4
+
+[reporting]
+output_dir = "outputs/scenarios/integrated_high_fleet_density_heavy"
+write_plots = false

@@ -1,0 +1,6 @@
+[suite]
+name = "canonical_full_matrix_heavy"
+dispatch_benchmark = "canonical_dispatch_benchmark_heavy.toml"
+integrated_benchmark = "canonical_integrated_benchmark_heavy.toml"
+output_dir = "../../outputs/benchmarks/canonical_full_matrix_heavy"
+analyze_after_run = true

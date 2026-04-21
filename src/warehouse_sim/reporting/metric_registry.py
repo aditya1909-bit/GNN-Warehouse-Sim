@@ -44,12 +44,17 @@ def build_simulation_metric_record(result: "SimulationResult") -> dict[str, floa
             "congestion_event_count": result.metrics.blocked_traversal_events_total,
             "collision_event_count": result.metrics.safety_violations_total,
             "deadlock_livelock_incident_count": 0,
+            "on_time_completion_rate": result.metrics.on_time_completion_rate,
+            "mean_tardiness": result.metrics.mean_tardiness,
+            "p95_tardiness": result.metrics.p95_tardiness,
+            "overdue_task_count": result.metrics.overdue_task_count,
             "planning_latency": None,
             "replanning_count": len(replanning_epochs),
             "planner_failure_count": result.metrics.planner_failures_total,
             "timeout_count": sum(status == "timeout" for status in planner_statuses),
-            "path_conflict_count_before_resolution": None,
-            "sipp_wait_insertion_count": None,
+            "path_conflict_count_before_resolution": result.metrics.path_conflicts_before_resolution_total,
+            "sipp_wait_insertion_count": result.metrics.sipp_wait_insertions_total,
+            "planner_wait_time_total": result.metrics.planner_wait_time_total,
             "mapf_solve_success_rate": (
                 sum(status == "planned" for status in planner_statuses) / len(planner_statuses)
                 if planner_statuses

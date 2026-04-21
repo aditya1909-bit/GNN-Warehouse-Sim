@@ -194,7 +194,9 @@ def _sample_metadata(
         }
 
     due_time = None
-    if metadata_config.due_time_slack_low is not None and metadata_config.due_time_slack_high is not None:
+    if metadata_config.due_time_slacks:
+        due_time = float(rng.choice(metadata_config.due_time_slacks))
+    elif metadata_config.due_time_slack_low is not None and metadata_config.due_time_slack_high is not None:
         due_time = float(
             rng.uniform(
                 metadata_config.due_time_slack_low,

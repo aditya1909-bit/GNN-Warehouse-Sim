@@ -30,6 +30,10 @@ scenario_configs = ["scenario.toml"]
 policies = ["fifo", "trained_linear_model"]
 output_dir = "outputs/benchmark"
 seeds = [7, 11]
+parallel_workers = 4
+resume = false
+fail_fast = true
+use_mps_for_learned_policies = true
 
 [benchmark.policy_artifacts]
 trained_linear_model = "artifacts/linear.json"
@@ -41,6 +45,10 @@ trained_linear_model = "artifacts/linear.json"
 
     assert config.policy_artifacts["trained_linear_model"] == Path("artifacts/linear.json")
     assert config.seeds == (7, 11)
+    assert config.parallel_workers == 4
+    assert config.resume is False
+    assert config.fail_fast is True
+    assert config.use_mps_for_learned_policies is True
 
 
 def test_load_benchmark_manifest_with_artifact_manifest(tmp_path: Path) -> None:
@@ -86,7 +94,7 @@ def test_load_canonical_dispatch_benchmark_manifest() -> None:
     assert config.name == "canonical_dispatch_benchmark"
     assert config.scenario_family == "canonical_dispatch"
     assert "trained_graph_dispatch_model" in config.policies
-    assert config.seeds == (7, 11, 13, 17, 19)
+    assert config.seeds == (7, 11, 13, 17, 19, 23, 29, 31, 37, 41)
 
 
 def test_load_spatial_realism_integrated_benchmark_manifest() -> None:
@@ -97,3 +105,25 @@ def test_load_spatial_realism_integrated_benchmark_manifest() -> None:
     assert config.scenario_family == "spatial_realism_integrated"
     assert "prioritized_sipp_coordinator" in config.policies
     assert config.seeds == (7,)
+
+
+def test_load_canonical_dispatch_benchmark_heavy_manifest() -> None:
+    config_path = Path(__file__).resolve().parents[2] / "configs" / "benchmarks" / "canonical_dispatch_benchmark_heavy.toml"
+    config = load_benchmark_config(config_path)
+
+    assert config.name == "canonical_dispatch_benchmark_heavy"
+    assert config.scenario_family == "canonical_dispatch_heavy"
+    assert "dispatch_due_pressure_heavy.toml" in {path.name for path in config.scenario_configs}
+    assert config.seeds is not None
+    assert len(config.seeds) == 25
+
+
+def test_load_canonical_integrated_benchmark_heavy_manifest() -> None:
+    config_path = Path(__file__).resolve().parents[2] / "configs" / "benchmarks" / "canonical_integrated_benchmark_heavy.toml"
+    config = load_benchmark_config(config_path)
+
+    assert config.name == "canonical_integrated_benchmark_heavy"
+    assert config.scenario_family == "canonical_integrated_heavy"
+    assert "integrated_tight_chokepoint_heavy.toml" in {path.name for path in config.scenario_configs}
+    assert config.seeds is not None
+    assert len(config.seeds) == 25

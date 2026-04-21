@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from warehouse_sim.agents import RobotSpec
@@ -46,6 +47,7 @@ from warehouse_sim.simulation.models import (
     SimulationResult,
 )
 from warehouse_sim.tasks import DemandTaskAdapterConfig, Task, tasks_from_demand_records
+from warehouse_sim.utils.dependencies import require_dependency
 
 
 def run_experiment_from_config(
@@ -53,6 +55,7 @@ def run_experiment_from_config(
     output_dir_override: Path | None = None,
     force_write_plots: bool | None = None,
     force_write_observation_dataset: bool | None = None,
+    runtime_device: str = "cpu",
 ) -> tuple[SimulationResult, dict[str, Path]]:
     """Build and run a simulation experiment from a loaded config."""
 
@@ -62,7 +65,7 @@ def run_experiment_from_config(
             environment=environment,
             tasks=tasks,
             robots=robots,
-            coordinator_policy=_build_integrated_policy(config),
+            coordinator_policy=_build_integrated_policy(config, runtime_device=runtime_device),
             config=simulation_config,
         )
     else:
@@ -70,7 +73,7 @@ def run_experiment_from_config(
             environment=environment,
             tasks=tasks,
             robots=robots,
-            dispatch_policy=_build_policy(config),
+            dispatch_policy=_build_policy(config, runtime_device=runtime_device),
             config=simulation_config,
         )
 
@@ -174,6 +177,7 @@ def build_experiment_inputs(
                 priorities=config.task_metadata.priorities,
                 service_duration_low=config.task_metadata.service_duration_low,
                 service_duration_high=config.task_metadata.service_duration_high,
+                due_time_slacks=config.task_metadata.due_time_slacks,
                 due_time_slack_low=config.task_metadata.due_time_slack_low,
                 due_time_slack_high=config.task_metadata.due_time_slack_high,
             )
@@ -246,6 +250,7 @@ def run_experiment_from_path(
     output_dir_override: Path | None = None,
     force_write_plots: bool | None = None,
     force_write_observation_dataset: bool | None = None,
+    runtime_device: str = "cpu",
 ) -> tuple[SimulationResult, dict[str, Path]]:
     """Load a config and run the corresponding experiment."""
 
@@ -255,10 +260,35 @@ def run_experiment_from_path(
         output_dir_override=output_dir_override,
         force_write_plots=force_write_plots,
         force_write_observation_dataset=force_write_observation_dataset,
+        runtime_device=runtime_device,
     )
 
 
-def _build_policy(config: ExperimentConfig):
+def default_parallel_worker_count(logical_cpu_count: int | None = None) -> int:
+    detected = logical_cpu_count if logical_cpu_count is not None else (os.cpu_count() or 2)
+    return max(1, min(8, detected - 1))
+
+
+def resolve_runtime_device(policy_name: str, *, use_mps_for_learned_policies: bool) -> str:
+    if not use_mps_for_learned_policies:
+        return "cpu"
+    if policy_name not in {
+        "trained_graph_dispatch_model",
+        "trained_end_to_end_macro_ppo",
+    }:
+        return "cpu"
+    return "mps" if mps_available() else "cpu"
+
+
+def mps_available() -> bool:
+    try:
+        torch = require_dependency("torch", feature="MPS benchmark inference")
+    except Exception:
+        return False
+    return bool(getattr(torch.backends, "mps", None) and torch.backends.mps.is_available())
+
+
+def _build_policy(config: ExperimentConfig, *, runtime_device: str = "cpu"):
     policy_name = config.simulation.policy
     if policy_name == "fifo":
         return FIFODispatchPolicy()
@@ -297,7 +327,7 @@ def _build_policy(config: ExperimentConfig):
         assert config.policy_model.artifact_path is not None
         from warehouse_sim.learning.graph_model import load_graph_dispatch_model
 
-        loaded = load_graph_dispatch_model(config.policy_model.artifact_path)
+        loaded = load_graph_dispatch_model(config.policy_model.artifact_path, device=runtime_device)
         return GraphDispatchArtifactPolicy(
             model=loaded.model,
             candidate_feature_names=tuple(loaded.artifact.parameters["candidate_feature_names"]),
@@ -307,7 +337,7 @@ def _build_policy(config: ExperimentConfig):
     raise ValueError(f"Unknown policy: {policy_name}")
 
 
-def _build_integrated_policy(config: ExperimentConfig):
+def _build_integrated_policy(config: ExperimentConfig, *, runtime_device: str = "cpu"):
     policy_name = config.simulation.policy
     if policy_name == "prioritized_sipp_coordinator":
         return PrioritizedSIPPCoordinatorPolicy()
@@ -320,7 +350,7 @@ def _build_integrated_policy(config: ExperimentConfig):
         assert config.policy_model.artifact_path is not None
         from warehouse_sim.learning.integrated_rl import load_end_to_end_macro_model
 
-        loaded = load_end_to_end_macro_model(config.policy_model.artifact_path)
+        loaded = load_end_to_end_macro_model(config.policy_model.artifact_path, device=runtime_device)
         return EndToEndMacroArtifactPolicy(loaded.model)
     raise ValueError(f"Unknown integrated policy: {policy_name}")
 

@@ -1,0 +1,67 @@
+name = "dispatch_due_pressure_heavy"
+
+[layout]
+rows = 10
+columns = 10
+edge_length = 1.0
+travel_speed = 1.0
+storage_cell = [0, 0]
+dropoff_cell = [9, 9]
+staging_cell = [9, 0]
+blocked_cells = [[3, 3], [3, 4], [3, 5], [4, 3], [5, 3], [6, 6], [6, 5], [5, 6]]
+directed_edges = [
+  [[1, 0], [1, 1]], [[1, 1], [1, 2]], [[1, 2], [1, 3]], [[1, 3], [1, 4]], [[1, 4], [1, 5]], [[1, 5], [1, 6]], [[1, 6], [1, 7]], [[1, 7], [1, 8]],
+  [[8, 1], [8, 2]], [[8, 2], [8, 3]], [[8, 3], [8, 4]], [[8, 4], [8, 5]], [[8, 5], [8, 6]], [[8, 6], [8, 7]], [[8, 7], [8, 8]],
+  [[2, 8], [3, 8]], [[3, 8], [4, 8]], [[4, 8], [5, 8]], [[5, 8], [6, 8]], [[6, 8], [7, 8]],
+]
+
+[layout.zone_cells]
+storage_fast = [[0, 2], [0, 3]]
+storage_far = [[0, 7], [0, 8]]
+inbound = [[2, 0], [3, 0]]
+dropoff_fast = [[9, 7], [9, 8]]
+dropoff_far = [[7, 9], [8, 9]]
+queue_station = [[9, 5], [9, 6]]
+
+[demand]
+horizon_seconds = 2400.0
+mean_interval = 18.0
+seed = 53
+min_tasks = 0
+rush_start = 300.0
+rush_end = 2100.0
+lunch_start = 2400.0
+lunch_end = 2400.0
+rush_multiplier = 2.8
+
+[robots]
+count = 10
+speed_multiplier = 1.0
+initial_zone = "staging_zone"
+
+[tasks]
+default_pickup_zone = "storage_zone"
+default_dropoff_zone = "dropoff_zone"
+default_task_type = "pick"
+default_priority = 1
+default_service_time_estimate = 28.0
+task_id_prefix = "task"
+
+[task_metadata]
+task_types = ["pick", "replenishment"]
+source_zones = ["storage_zone", "storage_fast", "storage_far", "inbound"]
+destination_zones = ["dropoff_zone", "dropoff_fast", "dropoff_far", "queue_station"]
+priorities = [1, 2, 3, 4]
+service_duration_low = 15.0
+service_duration_high = 70.0
+due_time_slacks = [90.0, 150.0, 240.0, 360.0]
+
+[simulation]
+policy = "fifo"
+horizon_seconds = 2400.0
+continue_until_all_tasks_complete = true
+execution_model = "reserved_edges"
+
+[reporting]
+output_dir = "outputs/scenarios/dispatch_due_pressure_heavy"
+write_plots = false

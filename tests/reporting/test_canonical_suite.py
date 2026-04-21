@@ -49,6 +49,9 @@ dispatch_benchmark = "dispatch_benchmark.toml"
 integrated_benchmark = "integrated_benchmark.toml"
 output_dir = "outputs/suite"
 analyze_after_run = true
+parallel_workers = 2
+resume = true
+concurrent_benchmarks = true
 """.strip(),
         encoding="utf-8",
     )
@@ -63,3 +66,5 @@ analyze_after_run = true
         "open_low_load",
         "integrated_obstacle_slalom",
     }
+    assert written["dispatch_run_state"].exists()
+    assert written["integrated_run_state"].exists()

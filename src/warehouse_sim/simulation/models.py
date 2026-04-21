@@ -108,6 +108,9 @@ class TaskExecution:
     travel_to_dropoff_path_arcs: tuple[str, ...]
     congestion_delay_time: float
     blocked_traversal_events: int
+    task_due_time: float | None = None
+    task_tardiness: float = 0.0
+    completed_on_time: bool = True
 
 
 @dataclass(frozen=True)
@@ -211,6 +214,9 @@ class DispatchTraceRecord:
     post_action_battery_fraction: float
     charger_reachable_after_action: float
     is_charge_action: float
+    policy_score: float | None = None
+    policy_rank: int | None = None
+    policy_score_label: str | None = None
 
 
 @dataclass(frozen=True)

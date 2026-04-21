@@ -46,4 +46,12 @@ def load_benchmark_config(path: Path) -> BenchmarkConfig:
         seeds=seeds,
         policy_artifacts=policy_artifacts,
         artifact_manifest=artifact_manifest,
+        parallel_workers=(
+            None
+            if benchmark.get("parallel_workers") in {None, "auto"}
+            else int(benchmark["parallel_workers"])
+        ),
+        resume=bool(benchmark.get("resume", True)),
+        fail_fast=bool(benchmark.get("fail_fast", False)),
+        use_mps_for_learned_policies=bool(benchmark.get("use_mps_for_learned_policies", False)),
     )

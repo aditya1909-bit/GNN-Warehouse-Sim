@@ -1,0 +1,46 @@
+name = "dense_crossing_heavy"
+
+[layout]
+rows = 12
+columns = 12
+edge_length = 1.0
+travel_speed = 1.0
+storage_cell = [0, 0]
+dropoff_cell = [11, 11]
+staging_cell = [11, 0]
+blocked_cells = [[4, 4], [4, 7], [7, 4], [7, 7], [5, 5], [5, 6], [6, 5], [6, 6]]
+directed_edges = []
+
+[demand]
+horizon_seconds = 3000.0
+mean_interval = 20.0
+seed = 59
+min_tasks = 0
+rush_start = 240.0
+rush_end = 2760.0
+lunch_start = 3000.0
+lunch_end = 3000.0
+rush_multiplier = 2.4
+
+[robots]
+count = 12
+speed_multiplier = 1.0
+initial_zone = "staging_zone"
+
+[tasks]
+default_pickup_zone = "storage_zone"
+default_dropoff_zone = "dropoff_zone"
+default_task_type = "pick"
+default_priority = 1
+default_service_time_estimate = 24.0
+task_id_prefix = "task"
+
+[simulation]
+policy = "fifo"
+horizon_seconds = 3000.0
+continue_until_all_tasks_complete = true
+execution_model = "reserved_edges"
+
+[reporting]
+output_dir = "outputs/scenarios/dense_crossing_heavy"
+write_plots = false

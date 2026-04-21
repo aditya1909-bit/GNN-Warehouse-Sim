@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+from concurrent.futures import ThreadPoolExecutor
 import json
 import tomllib
 from dataclasses import dataclass, replace
@@ -11,7 +12,7 @@ from pathlib import Path
 from warehouse_sim.config import load_benchmark_config
 from warehouse_sim.reporting import write_artifact_manifest, write_config_snapshot, write_seed_bundle
 from warehouse_sim.simulation import run_benchmark_from_config
-from warehouse_sim.simulation.benchmark import _resolve_benchmark_paths
+from warehouse_sim.simulation.benchmark import _effective_parallel_workers, _resolve_benchmark_paths
 
 
 @dataclass(frozen=True)
@@ -24,6 +25,11 @@ class CanonicalBenchmarkSuiteConfig:
     output_dir: Path
     analyze_after_run: bool = True
     artifact_manifest: Path | None = None
+    parallel_workers: int | None = None
+    resume: bool = True
+    fail_fast: bool = False
+    use_mps_for_learned_policies: bool = False
+    concurrent_benchmarks: bool = True
 
 
 def load_canonical_suite_config(path: Path) -> CanonicalBenchmarkSuiteConfig:
@@ -43,13 +49,40 @@ def load_canonical_suite_config(path: Path) -> CanonicalBenchmarkSuiteConfig:
             if suite.get("artifact_manifest") is None
             else (path.parent / str(suite["artifact_manifest"])).resolve()
         ),
+        parallel_workers=(
+            None
+            if suite.get("parallel_workers") in {None, "auto"}
+            else int(suite["parallel_workers"])
+        ),
+        resume=bool(suite.get("resume", True)),
+        fail_fast=bool(suite.get("fail_fast", False)),
+        use_mps_for_learned_policies=bool(suite.get("use_mps_for_learned_policies", False)),
+        concurrent_benchmarks=bool(suite.get("concurrent_benchmarks", True)),
     )
 
 
-def run_canonical_suite_from_path(config_path: Path) -> dict[str, Path]:
+def run_canonical_suite_from_path(
+    config_path: Path,
+    *,
+    parallel_workers_override: int | None = None,
+    resume_override: bool | None = None,
+    fail_fast_override: bool | None = None,
+    use_mps_for_learned_policies_override: bool | None = None,
+) -> dict[str, Path]:
     """Run the canonical dispatch and integrated benchmarks and combine their headline outputs."""
 
     suite = load_canonical_suite_config(config_path)
+    suite = replace(
+        suite,
+        parallel_workers=suite.parallel_workers if parallel_workers_override is None else parallel_workers_override,
+        resume=suite.resume if resume_override is None else resume_override,
+        fail_fast=suite.fail_fast if fail_fast_override is None else fail_fast_override,
+        use_mps_for_learned_policies=(
+            suite.use_mps_for_learned_policies
+            if use_mps_for_learned_policies_override is None
+            else use_mps_for_learned_policies_override
+        ),
+    )
     suite.output_dir.mkdir(parents=True, exist_ok=True)
     dispatch_output = suite.output_dir / "dispatch"
     integrated_output = suite.output_dir / "integrated"
@@ -62,30 +95,58 @@ def run_canonical_suite_from_path(config_path: Path) -> dict[str, Path]:
         suite.dispatch_benchmark,
         suite_root_override=dispatch_output,
         artifact_manifest=suite.artifact_manifest,
+        suite=suite,
     )
     integrated_benchmark = _load_suite_benchmark(
         suite.integrated_benchmark,
         suite_root_override=integrated_output,
         artifact_manifest=suite.artifact_manifest,
+        suite=suite,
     )
-    written.update(
-        {
-            f"dispatch_{label}": path
-            for label, path in run_benchmark_from_config(
-                benchmark_config=dispatch_benchmark,
+    worker_budget = _effective_parallel_workers(suite.parallel_workers)
+    if suite.concurrent_benchmarks and worker_budget > 1:
+        dispatch_workers = max(1, worker_budget // 2)
+        integrated_workers = max(1, worker_budget - dispatch_workers)
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            dispatch_future = executor.submit(
+                run_benchmark_from_config,
+                benchmark_config=replace(dispatch_benchmark, parallel_workers=dispatch_workers),
                 benchmark_root_override=dispatch_output,
-            ).items()
-        }
-    )
-    written.update(
-        {
-            f"integrated_{label}": path
-            for label, path in run_benchmark_from_config(
-                benchmark_config=integrated_benchmark,
+                parallel_workers_override=dispatch_workers,
+                resume_override=suite.resume,
+                fail_fast_override=suite.fail_fast,
+                use_mps_for_learned_policies_override=suite.use_mps_for_learned_policies,
+            )
+            integrated_future = executor.submit(
+                run_benchmark_from_config,
+                benchmark_config=replace(integrated_benchmark, parallel_workers=integrated_workers),
                 benchmark_root_override=integrated_output,
-            ).items()
-        }
-    )
+                parallel_workers_override=integrated_workers,
+                resume_override=suite.resume,
+                fail_fast_override=suite.fail_fast,
+                use_mps_for_learned_policies_override=suite.use_mps_for_learned_policies,
+            )
+            dispatch_written = dispatch_future.result()
+            integrated_written = integrated_future.result()
+    else:
+        dispatch_written = run_benchmark_from_config(
+            benchmark_config=replace(dispatch_benchmark, parallel_workers=worker_budget),
+            benchmark_root_override=dispatch_output,
+            parallel_workers_override=worker_budget,
+            resume_override=suite.resume,
+            fail_fast_override=suite.fail_fast,
+            use_mps_for_learned_policies_override=suite.use_mps_for_learned_policies,
+        )
+        integrated_written = run_benchmark_from_config(
+            benchmark_config=replace(integrated_benchmark, parallel_workers=worker_budget),
+            benchmark_root_override=integrated_output,
+            parallel_workers_override=worker_budget,
+            resume_override=suite.resume,
+            fail_fast_override=suite.fail_fast,
+            use_mps_for_learned_policies_override=suite.use_mps_for_learned_policies,
+        )
+    written.update({f"dispatch_{label}": path for label, path in dispatch_written.items()})
+    written.update({f"integrated_{label}": path for label, path in integrated_written.items()})
     if suite.analyze_after_run:
         written.update(
             {
@@ -191,9 +252,17 @@ def _load_suite_benchmark(
     *,
     suite_root_override: Path,
     artifact_manifest: Path | None,
+    suite: CanonicalBenchmarkSuiteConfig,
 ):
     benchmark = _resolve_benchmark_paths(load_benchmark_config(benchmark_path), benchmark_path.parent)
-    benchmark = replace(benchmark, output_dir=suite_root_override)
+    benchmark = replace(
+        benchmark,
+        output_dir=suite_root_override,
+        parallel_workers=suite.parallel_workers,
+        resume=suite.resume,
+        fail_fast=suite.fail_fast,
+        use_mps_for_learned_policies=suite.use_mps_for_learned_policies,
+    )
     if artifact_manifest is not None and benchmark.artifact_manifest is None:
         benchmark = replace(benchmark, artifact_manifest=artifact_manifest)
     return benchmark

@@ -7,6 +7,10 @@ The repository now has a canonical benchmark harness for benchmark-first compari
 - [`configs/benchmarks/canonical_dispatch_benchmark.toml`](../configs/benchmarks/canonical_dispatch_benchmark.toml)
 - [`configs/benchmarks/canonical_integrated_benchmark.toml`](../configs/benchmarks/canonical_integrated_benchmark.toml)
 - [`configs/benchmarks/canonical_full_matrix.toml`](../configs/benchmarks/canonical_full_matrix.toml)
+- [`configs/benchmarks/canonical_full_matrix_smoke.toml`](../configs/benchmarks/canonical_full_matrix_smoke.toml)
+- [`configs/benchmarks/canonical_dispatch_benchmark_heavy.toml`](../configs/benchmarks/canonical_dispatch_benchmark_heavy.toml)
+- [`configs/benchmarks/canonical_integrated_benchmark_heavy.toml`](../configs/benchmarks/canonical_integrated_benchmark_heavy.toml)
+- [`configs/benchmarks/canonical_full_matrix_heavy.toml`](../configs/benchmarks/canonical_full_matrix_heavy.toml)
 
 Run the full suite with:
 
@@ -23,6 +27,12 @@ PYTHONPATH=src python3 scripts/run_canonical_benchmarks.py \
 That command runs the dispatch and integrated benchmark families, writes per-benchmark artifacts, and then combines their claim tables into one headline-results bundle.
 
 Use that scripted workflow, not the notebooks, as the authoritative reproduction path for benchmark claims.
+
+Use the suite variants intentionally:
+
+- `canonical_full_matrix_smoke.toml` keeps the fast 1-3 minute benchmark contract for CI and local sanity checks.
+- `canonical_full_matrix.toml` remains the standard repeated-seed bundle for routine repo-level evaluation.
+- `canonical_full_matrix_heavy.toml` is the research suite: twenty-five shared seeds, larger `8x8`/`10x10`/`12x12` layouts, longer `1800s-3000s` horizons, heavier dispatch demand, and planner scenarios tuned to create conflict cascades and tail-latency separation.
 
 The artifact-builder step now:
 
@@ -63,9 +73,10 @@ The canonical scenario matrix is organized around fixed named regimes:
 Across the suite, those scenarios vary fleet size, demand rate, topology pressure, execution model, coordination mode, and now include:
 
 - a due-time-pressure dispatch case with multiple source and sink zones,
+- a heavier due-time dispatch case with one-way aisles, tiered deadlines, queue-station drop zones, rush bursts, and wider service-time dispersion,
 - a tighter integrated chokepoint case designed to amplify path-conflict pressure.
 
-The canonical manifests now use ten shared seeds per scenario so paired policy comparisons have enough power for scenario-level claim language.
+The heavy manifests raise that budget to twenty-five shared seeds per scenario so paired policy comparisons have materially more power than the smoke or standard bundles.
 
 ## Artifact Contract
 
@@ -77,6 +88,8 @@ Each benchmark root writes:
 - `benchmark_claims.json`
 - `benchmark_paired_deltas.csv`
 - `policy_distinctness_audit.csv`
+- `policy_collapse_diagnostics.csv`
+- `policy_collapse_diagnostics.json`
 - `benchmark_summary.json`
 - `figures/`
 - `manifest.json`
@@ -84,6 +97,16 @@ Each benchmark root writes:
 - `seed_bundle.json`
 
 The aggregate tables use one stable metric schema, include mean/std/95% CI columns, keep demand seeds aligned across policies whenever the compared policies can share the same scenario config, and now add paired seed-wise deltas for claim rows.
+
+The metric schema now includes due-time and planner-conflict measurements needed to scale the suite without losing the objective:
+
+- `on_time_completion_rate`
+- `mean_tardiness`
+- `p95_tardiness`
+- `overdue_task_count`
+- `path_conflict_count_before_resolution`
+- `sipp_wait_insertion_count`
+- `planner_wait_time_total`
 
 ## Visual Outputs
 
@@ -95,8 +118,9 @@ The benchmark figure bundle is now designed to explain both outcome and mechanis
 - `seen_vs_unseen_gap.png` for generalization gaps,
 - `integrated_narrow_bottleneck_mechanism.png` for planner-vs-baseline trajectory, occupancy, and CDF comparisons,
 - `integrated_narrow_bottleneck_congestion_heatmap.png` for graph-level congestion intensity,
-- `dispatch_decision_explainer.png` for one representative dispatch event,
-- `policy_distinctness_heatmap.png` for policy-collapse checks.
+- `dispatch_decision_explainer.png` for one representative dispatch event using the true recorded policy score when the policy exports one,
+- `policy_distinctness_heatmap.png` for policy-collapse checks,
+- `policy_collapse_diagnostics.png` for collapse-hypothesis ranking across compared policy pairs.
 
 ## Reproducibility
 

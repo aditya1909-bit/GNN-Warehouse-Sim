@@ -27,6 +27,7 @@ class TaskMetadataConfig:
     priorities: tuple[int, ...] = (1, 2, 3)
     service_duration_low: float = 30.0
     service_duration_high: float = 180.0
+    due_time_slacks: tuple[float, ...] = ()
     due_time_slack_low: float | None = None
     due_time_slack_high: float | None = None
 
@@ -47,6 +48,12 @@ class TaskMetadataConfig:
             raise DemandValidationError(
                 "service_duration_low must be <= service_duration_high."
             )
+        if self.due_time_slacks and (self.due_time_slack_low is not None or self.due_time_slack_high is not None):
+            raise DemandValidationError(
+                "due_time_slacks cannot be combined with due_time_slack_low/high."
+            )
+        if self.due_time_slacks and any(value <= 0 for value in self.due_time_slacks):
+            raise DemandValidationError("due_time_slacks must contain only positive values.")
         if (self.due_time_slack_low is None) != (self.due_time_slack_high is None):
             raise DemandValidationError(
                 "due_time_slack_low and due_time_slack_high must be set together."

@@ -130,6 +130,15 @@ def run_integrated_simulation(
                 config=config,
             ) or coordinator_policy.select_macros(observation)
             planner_name = output.planner_name or getattr(coordinator_policy, "planner_name", "prioritized_sipp")
+            pre_resolution_conflict_count = _count_pre_resolution_conflicts(
+                environment=environment,
+                observation=observation,
+                output=output,
+                robot_states=robot_states,
+                occupancy=occupancy,
+                current_time=current_time,
+                config=config,
+            )
             used_tasks: set[str] = set()
             for robot_index, robot in enumerate(robot_states):
                 candidates = observation.macro_candidates[robot_index]
@@ -140,6 +149,11 @@ def run_integrated_simulation(
                 if candidate.task_id is not None and candidate.task_id in used_tasks:
                     candidate = candidates[0]
                     chosen_index = 0
+                (
+                    selection_rank,
+                    best_candidate_estimated_completion,
+                    selected_completion_gap,
+                ) = _macro_selection_diagnostics(candidates, chosen_index)
                 macro_decisions.append(
                     MacroDecisionRecord(
                         decision_index=decision_index,
@@ -152,6 +166,10 @@ def run_integrated_simulation(
                         route_edges=tuple(f"{source}->{target}" for source, target in candidate.route_edges),
                         estimated_completion_time=candidate.estimated_completion_time,
                         selected_by_policy=coordinator_policy.name,
+                        candidate_count=len(candidates),
+                        selected_rank_by_estimated_completion=selection_rank,
+                        best_candidate_estimated_completion=best_candidate_estimated_completion,
+                        selected_completion_gap=selected_completion_gap,
                     )
                 )
                 decision_index += 1
@@ -190,6 +208,7 @@ def run_integrated_simulation(
                             planned_end_time=current_time,
                             planner_name=planner_name,
                             status="failed",
+                            pre_resolution_conflict_count=pre_resolution_conflict_count,
                         )
                     )
                     plan_index += 1
@@ -228,6 +247,9 @@ def run_integrated_simulation(
                         planned_end_time=planned.completion_time,
                         planner_name=planner_name,
                         status="planned",
+                        pre_resolution_conflict_count=pre_resolution_conflict_count,
+                        wait_insertion_count=planned.blocked_events,
+                        wait_insertion_time=planned.wait_time,
                     )
                 )
                 plan_index += 1
@@ -426,6 +448,65 @@ def build_integrated_observation(
         task_ids=task_ids,
         macro_candidates=macro_candidates,
     )
+
+
+def _macro_selection_diagnostics(
+    candidates: tuple[MacroCandidate, ...],
+    chosen_index: int,
+) -> tuple[int, float, float]:
+    if not candidates:
+        return 0, 0.0, 0.0
+    estimated_pairs = sorted(
+        ((candidate.estimated_completion_time, index) for index, candidate in enumerate(candidates)),
+        key=lambda item: (item[0], item[1]),
+    )
+    rank_by_index = {index: rank + 1 for rank, (_value, index) in enumerate(estimated_pairs)}
+    best_estimated_completion = float(estimated_pairs[0][0])
+    chosen_estimated_completion = float(candidates[chosen_index].estimated_completion_time)
+    return (
+        rank_by_index.get(chosen_index, len(candidates)),
+        best_estimated_completion,
+        chosen_estimated_completion - best_estimated_completion,
+    )
+
+
+def _count_pre_resolution_conflicts(
+    *,
+    environment: WarehouseEnvironment,
+    observation: IntegratedObservation,
+    output,
+    robot_states: tuple[RobotState, ...],
+    occupancy,
+    current_time: float,
+    config: SimulationConfig,
+) -> int:
+    if config.coordination is None:
+        return 0
+    naive_traversals = []
+    for robot_index, robot in enumerate(robot_states):
+        candidates = observation.macro_candidates[robot_index]
+        if not candidates:
+            continue
+        chosen_index = output.chosen_indices[robot_index] if robot_index < len(output.chosen_indices) else 0
+        if chosen_index < 0 or chosen_index >= len(candidates):
+            chosen_index = 0
+        candidate = candidates[chosen_index]
+        if candidate.macro_type not in {"task_route", "charge_route"}:
+            continue
+        planned = plan_motion_candidate(
+            environment,
+            robot_id=robot.spec.robot_id,
+            start_time=current_time,
+            speed_multiplier=robot.spec.speed_multiplier,
+            occupancy_table=occupancy.clone(),
+            candidate=candidate,
+            service_time=candidate.service_time_estimate,
+            motion_model=config.coordination.motion_model,
+        )
+        if planned is None:
+            continue
+        naive_traversals.extend(planned.traversals)
+    return len(_detect_motion_collisions(traversals=tuple(naive_traversals), config=config))
 
 
 def _build_robot_macro_candidates(
@@ -736,6 +817,17 @@ def _finalize_completed_plans(
                 ),
                 congestion_delay_time=plan.wait_time,
                 blocked_traversal_events=plan.blocked_events,
+                task_due_time=plan.task.due_time,
+                task_tardiness=(
+                    0.0
+                    if plan.task.due_time is None
+                    else max(plan.completion_time - plan.task.due_time, 0.0)
+                ),
+                completed_on_time=(
+                    True
+                    if plan.task.due_time is None
+                    else plan.completion_time <= plan.task.due_time + 1e-9
+                ),
             )
         )
 

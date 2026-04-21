@@ -72,13 +72,24 @@ def run_simulation(
         idle_robots = context.idle_robots
 
         while idle_robots:
-            if not build_candidate_assignment_observations(context):
+            candidates = build_candidate_assignment_observations(context)
+            if not candidates:
                 break
             decision = dispatch_policy.select_assignment_from_context(context)
             if decision is None:
                 break
 
-            dispatch_traces.extend(_build_dispatch_trace_records(context, decision, dispatch_index))
+            policy_scores = dispatch_policy.score_assignment_candidates_from_context(context, candidates)
+            dispatch_traces.extend(
+                _build_dispatch_trace_records(
+                    context,
+                    decision,
+                    dispatch_index,
+                    candidates=candidates,
+                    policy_scores=policy_scores,
+                    policy_score_label=getattr(dispatch_policy, "policy_score_label", None),
+                )
+            )
             dispatch_node_observations.extend(
                 build_dispatch_node_observation_records(
                     context=context,
@@ -250,6 +261,9 @@ def _assign_task(
         travel_to_dropoff_path_arcs=travel_to_dropoff.path_arcs,
         congestion_delay_time=assignment.congestion_delay_time,
         blocked_traversal_events=assignment.blocked_traversal_events,
+        task_due_time=task.due_time,
+        task_tardiness=(0.0 if task.due_time is None else max(completion_time - task.due_time, 0.0)),
+        completed_on_time=(True if task.due_time is None else completion_time <= task.due_time + 1e-9),
     )
 
 
@@ -403,13 +417,28 @@ def _build_dispatch_trace_records(
     context: DispatchContext,
     decision,
     dispatch_index: int,
+    *,
+    candidates,
+    policy_scores: tuple[float | None, ...] | None = None,
+    policy_score_label: str | None = None,
 ) -> list[DispatchTraceRecord]:
     traces: list[DispatchTraceRecord] = []
     robot_by_id = {
         robot.robot_id: robot
         for robot in context.robot_observations
     }
-    for candidate in build_candidate_assignment_observations(context):
+    ranked_indices: dict[int, int] = {}
+    if policy_scores is not None:
+        ordered = sorted(
+            range(len(candidates)),
+            key=lambda index: (
+                float("-inf") if policy_scores[index] is None else float(policy_scores[index]),
+                -index,
+            ),
+            reverse=True,
+        )
+        ranked_indices = {candidate_index: rank + 1 for rank, candidate_index in enumerate(ordered)}
+    for candidate_index, candidate in enumerate(candidates):
         robot_observation = robot_by_id[candidate.robot_id]
         traces.append(
             DispatchTraceRecord(
@@ -498,6 +527,13 @@ def _build_dispatch_trace_records(
                 post_action_battery_fraction=candidate.feature("post_action_battery_fraction"),
                 charger_reachable_after_action=candidate.feature("charger_reachable_after_action"),
                 is_charge_action=candidate.feature("is_charge_action"),
+                policy_score=(
+                    None
+                    if policy_scores is None or candidate_index >= len(policy_scores)
+                    else policy_scores[candidate_index]
+                ),
+                policy_rank=ranked_indices.get(candidate_index),
+                policy_score_label=policy_score_label,
             )
         )
     return traces

@@ -15,6 +15,7 @@ class FIFODispatchPolicy(DispatchPolicy):
     """Assign the earliest released task to the lexicographically first idle robot."""
 
     name = "fifo"
+    policy_score_label = "fifo_rank"
 
     def select_assignment(
         self,
@@ -50,11 +51,38 @@ class FIFODispatchPolicy(DispatchPolicy):
         )
         return DispatchDecision.for_task(robot_id=best_candidate.robot_id, task_id=best_candidate.task_id or "")
 
+    def score_assignment_candidates_from_context(self, context, candidates):  # type: ignore[override]
+        urgent_charge, task_candidates = _split_dispatch_candidates(context, list(candidates))
+        if urgent_charge:
+            return _rank_scores(
+                candidates,
+                ranking=sorted(
+                    urgent_charge,
+                    key=lambda candidate: (
+                        candidate.feature("travel_to_pickup_time"),
+                        candidate.robot_id,
+                        candidate.charging_node_id or "",
+                    ),
+                ),
+            )
+        return _rank_scores(
+            candidates,
+            ranking=sorted(
+                task_candidates,
+                key=lambda candidate: (
+                    -candidate.feature("task_age"),
+                    candidate.task_id or "",
+                    candidate.robot_id,
+                ),
+            ),
+        )
+
 
 class RandomDispatchPolicy(DispatchPolicy):
     """Choose a random idle-robot and ready-task pair with deterministic seeding."""
 
     name = "random"
+    policy_score_label = "uniform_random"
 
     def __init__(self, seed: int = 0) -> None:
         self._rng = random.Random(seed)
@@ -87,11 +115,15 @@ class RandomDispatchPolicy(DispatchPolicy):
             )
         return DispatchDecision.for_task(robot_id=chosen.robot_id, task_id=chosen.task_id or "")
 
+    def score_assignment_candidates_from_context(self, context, candidates):  # type: ignore[override]
+        return tuple(0.0 for _ in candidates)
+
 
 class NearestRobotTaskPolicy(DispatchPolicy):
     """Choose the globally closest robot-task pairing by travel time to pickup."""
 
     name = "nearest_robot_task"
+    policy_score_label = "nearest_cost"
 
     def select_assignment(
         self,
@@ -152,11 +184,36 @@ class NearestRobotTaskPolicy(DispatchPolicy):
         )
         return DispatchDecision.for_task(robot_id=chosen.robot_id, task_id=chosen.task_id or "")
 
+    def score_assignment_candidates_from_context(self, context, candidates):  # type: ignore[override]
+        urgent_charge, task_candidates = _split_dispatch_candidates(context, list(candidates))
+        values = []
+        if urgent_charge:
+            urgent_set = set(id(item) for item in urgent_charge)
+            for candidate in candidates:
+                if id(candidate) in urgent_set:
+                    values.append(-candidate.feature("travel_to_pickup_time"))
+                else:
+                    values.append(float("-inf"))
+            return tuple(values)
+        task_set = set(id(item) for item in task_candidates)
+        for candidate in candidates:
+            if id(candidate) in task_set:
+                values.append(
+                    -(
+                        candidate.feature("travel_to_pickup_time")
+                        + 1e-3 * max(candidate.feature("task_age"), 0.0) * -1.0
+                    )
+                )
+            else:
+                values.append(float("-inf"))
+        return tuple(values)
+
 
 class NearestTaskForIdleRobotPolicy(DispatchPolicy):
     """Choose the nearest task for the lexicographically first idle robot."""
 
     name = "nearest_task_for_idle_robot"
+    policy_score_label = "first_robot_rank"
 
     def select_assignment(
         self,
@@ -211,11 +268,40 @@ class NearestTaskForIdleRobotPolicy(DispatchPolicy):
         )
         return DispatchDecision.for_task(robot_id=chosen.robot_id, task_id=chosen.task_id or "")
 
+    def score_assignment_candidates_from_context(self, context, candidates):  # type: ignore[override]
+        urgent_charge, task_candidates = _split_dispatch_candidates(context, list(candidates))
+        first_robot_id = min(candidate.robot_id for candidate in candidates)
+        first_robot_charge = [candidate for candidate in urgent_charge if candidate.robot_id == first_robot_id]
+        if first_robot_charge:
+            return _rank_scores(
+                candidates,
+                ranking=sorted(
+                    first_robot_charge,
+                    key=lambda candidate: (
+                        candidate.feature("travel_to_pickup_time"),
+                        candidate.charging_node_id or "",
+                    ),
+                ),
+            )
+        first_robot_tasks = [candidate for candidate in task_candidates if candidate.robot_id == first_robot_id]
+        return _rank_scores(
+            candidates,
+            ranking=sorted(
+                first_robot_tasks,
+                key=lambda candidate: (
+                    candidate.feature("travel_to_pickup_time"),
+                    candidate.feature("task_age") * -1.0,
+                    candidate.task_id or "",
+                ),
+            ),
+        )
+
 
 class CongestionAwareNearestRobotTaskPolicy(DispatchPolicy):
     """Greedy baseline that penalizes routes with predicted blocking."""
 
     name = "congestion_aware_nearest_robot_task"
+    policy_score_label = "congestion_aware_score"
 
     def __init__(self, blocking_penalty: float = 1.0) -> None:
         self._blocking_penalty = blocking_penalty
@@ -260,6 +346,32 @@ class CongestionAwareNearestRobotTaskPolicy(DispatchPolicy):
         )
         return DispatchDecision.for_task(robot_id=best_candidate.robot_id, task_id=best_candidate.task_id or "")
 
+    def score_assignment_candidates_from_context(self, context, candidates):  # type: ignore[override]
+        urgent_charge, task_candidates = _split_dispatch_candidates(context, list(candidates))
+        values = []
+        urgent_set = set(id(item) for item in urgent_charge)
+        task_set = set(id(item) for item in task_candidates)
+        for candidate in candidates:
+            if id(candidate) in urgent_set:
+                values.append(-candidate.feature("travel_to_pickup_time"))
+                continue
+            if id(candidate) not in task_set:
+                values.append(float("-inf"))
+                continue
+            cost = (
+                candidate.feature("travel_to_pickup_time")
+                + candidate.feature("pickup_to_dropoff_time")
+                + candidate.feature("estimated_pickup_congestion_delay")
+                + candidate.feature("estimated_dropoff_congestion_delay")
+                + self._blocking_penalty
+                * (
+                    candidate.feature("estimated_pickup_blocked_segments")
+                    + candidate.feature("estimated_dropoff_blocked_segments")
+                )
+            )
+            values.append(-cost)
+        return tuple(values)
+
     def select_assignment(self, idle_robots, ready_tasks, environment):  # type: ignore[override]
         raise RuntimeError(
             "CongestionAwareNearestRobotTaskPolicy requires dispatch contexts and cannot use the legacy selection path."
@@ -283,3 +395,8 @@ def _split_dispatch_candidates(context, candidates):
         )
     ]
     return urgent_charge, task_candidates
+
+
+def _rank_scores(candidates, ranking):
+    order = {id(candidate): float(len(ranking) - index) for index, candidate in enumerate(ranking)}
+    return tuple(order.get(id(candidate), float("-inf")) for candidate in candidates)

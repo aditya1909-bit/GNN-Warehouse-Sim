@@ -64,6 +64,8 @@ Each benchmark root now writes:
 - `benchmark_claims.json`
 - `benchmark_paired_deltas.csv`
 - `policy_distinctness_audit.csv`
+- `policy_collapse_diagnostics.csv`
+- `policy_collapse_diagnostics.json`
 - `benchmark_summary.json`
 - `figures/`
 - `manifest.json`
@@ -86,6 +88,10 @@ The repository now includes canonical benchmark configs under [`configs/benchmar
 - `canonical_dispatch_benchmark.toml`
 - `canonical_integrated_benchmark.toml`
 - `canonical_full_matrix.toml`
+- `canonical_full_matrix_smoke.toml`
+- `canonical_dispatch_benchmark_heavy.toml`
+- `canonical_integrated_benchmark_heavy.toml`
+- `canonical_full_matrix_heavy.toml`
 
 The canonical scenario family includes:
 
@@ -95,15 +101,20 @@ The canonical scenario family includes:
 - `dense_crossing`
 - `high_fleet_density`
 - `dispatch_due_pressure`
+- `dispatch_due_pressure_heavy`
 - `integrated_reserved_edges`
 - `integrated_reserved_nodes`
 - `integrated_narrow_bottleneck`
 - `integrated_tight_chokepoint`
+- `integrated_tight_chokepoint_heavy`
+- `integrated_high_fleet_density_heavy`
 - `integrated_free_space`
 - `unseen_layout_generalization`
 - `unseen_demand_generalization`
 
-The canonical suite now uses ten shared seeds per scenario and writes a visual bundle centered on:
+The smoke suite keeps the current quick-turn runtime for CI and local sanity checks. The heavier research suite expands to twenty-five shared seeds per scenario, larger `8x8`/`10x10`/`12x12` layouts, longer `1800s-3000s` horizons, higher fleet counts, and more conflict-heavy dispatch and planner regimes.
+
+The benchmark bundle now writes a visual and diagnostic package centered on:
 
 - claim forest plots,
 - per-seed paired-improvement dots,
@@ -112,6 +123,17 @@ The canonical suite now uses ten shared seeds per scenario and writes a visual b
 - integrated bottleneck mechanism figures,
 - congestion heatmaps,
 - dispatch decision explainers.
+- policy-collapse diagnostics.
+
+The canonical metric schema now also exposes due-time and planner-conflict metrics:
+
+- `on_time_completion_rate`
+- `mean_tardiness`
+- `p95_tardiness`
+- `overdue_task_count`
+- `path_conflict_count_before_resolution`
+- `sipp_wait_insertion_count`
+- `planner_wait_time_total`
 
 Legacy benchmark configs remain useful for narrower checks:
 

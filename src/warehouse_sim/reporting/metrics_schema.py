@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Mapping
 
 
-METRIC_SCHEMA_VERSION = "1.0"
+METRIC_SCHEMA_VERSION = "1.1"
 
 
 @dataclass(frozen=True)
@@ -106,6 +106,34 @@ METRIC_DEFINITIONS: tuple[MetricDefinition, ...] = (
         unit="count",
     ),
     MetricDefinition(
+        name="on_time_completion_rate",
+        category="primary",
+        direction="maximize",
+        description="Fraction of completed tasks whose completion time does not exceed the task due time.",
+        unit="fraction",
+    ),
+    MetricDefinition(
+        name="mean_tardiness",
+        category="primary",
+        direction="minimize",
+        description="Mean tardiness over completed tasks, where tardiness is max(completion_time - due_time, 0).",
+        unit="seconds",
+    ),
+    MetricDefinition(
+        name="p95_tardiness",
+        category="primary",
+        direction="minimize",
+        description="95th percentile tardiness over completed tasks.",
+        unit="seconds",
+    ),
+    MetricDefinition(
+        name="overdue_task_count",
+        category="primary",
+        direction="minimize",
+        description="Number of completed tasks that miss their due times.",
+        unit="count",
+    ),
+    MetricDefinition(
         name="planning_latency",
         category="planner",
         direction="minimize",
@@ -146,6 +174,13 @@ METRIC_DEFINITIONS: tuple[MetricDefinition, ...] = (
         direction="minimize",
         description="Count of inserted SIPP wait actions attributable to collision avoidance.",
         unit="count",
+    ),
+    MetricDefinition(
+        name="planner_wait_time_total",
+        category="planner",
+        direction="minimize",
+        description="Total wait time inserted by the planner to resolve motion conflicts.",
+        unit="seconds",
     ),
     MetricDefinition(
         name="mapf_solve_success_rate",

@@ -16,6 +16,10 @@ The benchmark layer uses one canonical schema across dispatch, integrated coordi
 - `congestion_event_count`: total blocked-traversal or congestion-induced wait events.
 - `collision_event_count`: explicit safety-violation or collision events.
 - `deadlock_livelock_incident_count`: explicit deadlock or livelock incidents. The current stack emits `0` unless a detector writes incidents.
+- `on_time_completion_rate`: fraction of completed tasks that finish on or before their due time.
+- `mean_tardiness`: mean `max(completion_time - due_time, 0)` over completed tasks.
+- `p95_tardiness`: 95th percentile tardiness over completed tasks.
+- `overdue_task_count`: count of completed tasks that miss their due time.
 
 ## Planner Metrics
 
@@ -23,8 +27,9 @@ The benchmark layer uses one canonical schema across dispatch, integrated coordi
 - `replanning_count`: number of distinct replanning epochs in the run.
 - `planner_failure_count`: planner calls that failed to produce a feasible plan.
 - `timeout_count`: planner calls that timed out.
-- `path_conflict_count_before_resolution`: raw conflicts detected before planner conflict resolution. Reserved in the schema for future exact conflict accounting.
-- `sipp_wait_insertion_count`: explicit SIPP wait insertions. Reserved in the schema until the planner exports that trace directly.
+- `path_conflict_count_before_resolution`: raw conflicts detected before planner conflict resolution, aggregated once per planning epoch.
+- `sipp_wait_insertion_count`: explicit SIPP wait insertions attributable to conflict avoidance.
+- `planner_wait_time_total`: total wait time inserted by the planner to resolve motion conflicts.
 - `mapf_solve_success_rate`: fraction of planner calls that produced a feasible joint plan.
 
 ## Learning Metrics
@@ -46,3 +51,4 @@ Those fields are part of the stable schema now so offline fitting, PPO fine-tuni
 - `metric_schema_version` is written into benchmark summaries, aggregates, and claims.
 - Aggregate tables append `_mean`, `_std`, `_ci95_low`, and `_ci95_high` to every canonical metric name.
 - When a metric is defined in the schema but not yet emitted by the underlying subsystem, the output writes `null` in JSON and an empty CSV cell.
+- `METRIC_SCHEMA_VERSION` is now `1.1`, which is the first schema version that requires the due-time and planner-conflict fields above.
