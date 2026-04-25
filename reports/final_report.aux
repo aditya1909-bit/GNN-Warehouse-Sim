@@ -1,0 +1,43 @@
+\relax 
+\providecommand\hyper@newdestlabel[2]{}
+\providecommand\HyField@AuxAddToFields[1]{}
+\providecommand\HyField@AuxAddToCoFields[2]{}
+\@writefile{toc}{\contentsline {section}{\numberline {1}Introduction}{1}{section.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {2}Problem Definition}{1}{section.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {3}Simulation Approach}{2}{section.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.1}Model Type}{2}{subsection.3.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.2}Decision Layer}{2}{subsection.3.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.3}Planner in the Loop}{2}{subsection.3.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {4}Assumptions and Stochasticity}{3}{section.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.1}Key Assumptions}{3}{subsection.4.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.2}Stochastic Elements}{3}{subsection.4.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {5}Method}{3}{section.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.1}Baseline Policy}{3}{subsection.5.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.2}Learned Policy}{3}{subsection.5.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {6}Experimental Design}{4}{section.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.1}Scenarios}{4}{subsection.6.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.2}Metrics}{4}{subsection.6.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.3}Training Summary}{4}{subsection.6.3}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces Warm-start behavior cloning convergence. The behavior cloning loss decreases only modestly, while teacher action match approaches 1.0 very quickly. This supports the later conclusion that the policy remained too close to the heuristic teacher.}}{5}{figure.1}\protected@file@percent }
+\newlabel{fig:warm-start}{{1}{5}{Warm-start behavior cloning convergence. The behavior cloning loss decreases only modestly, while teacher action match approaches 1.0 very quickly. This supports the later conclusion that the policy remained too close to the heuristic teacher}{figure.1}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {7}Results}{5}{section.7}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.1}Gate Outcome}{5}{subsection.7.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.2}Scenario-by-Scenario Comparison}{5}{subsection.7.2}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces Learned policy vs.\ heuristic baseline on canonical integrated scenarios. Throughput ratio is learned divided by baseline. Planner-wait ratio is learned divided by baseline. Lower planner-wait ratio is better.}}{6}{table.1}\protected@file@percent }
+\newlabel{tab:main-results}{{1}{6}{Learned policy vs.\ heuristic baseline on canonical integrated scenarios. Throughput ratio is learned divided by baseline. Planner-wait ratio is learned divided by baseline. Lower planner-wait ratio is better}{table.1}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces Raw scenario-level comparison on the canonical validation seed. The learned policy reduces planner wait in the dense heavy settings and remains closest to throughput parity in those same difficult scenarios.}}{6}{figure.2}\protected@file@percent }
+\newlabel{fig:scenario-comparison}{{2}{6}{Raw scenario-level comparison on the canonical validation seed. The learned policy reduces planner wait in the dense heavy settings and remains closest to throughput parity in those same difficult scenarios}{figure.2}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {3}{\ignorespaces Relative performance versus the heuristic baseline. The dashed line at 1.0 marks parity. Values below 1.0 are better for planner-wait ratio, but worse for throughput ratio. The learned policy is closest to parity on the dense heavy scenarios and much worse on the easier scenarios.}}{7}{figure.3}\protected@file@percent }
+\newlabel{fig:scenario-ratios}{{3}{7}{Relative performance versus the heuristic baseline. The dashed line at 1.0 marks parity. Values below 1.0 are better for planner-wait ratio, but worse for throughput ratio. The learned policy is closest to parity on the dense heavy scenarios and much worse on the easier scenarios}{figure.3}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.3}Interpretation}{7}{subsection.7.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Where the learned policy helps.}{7}{section*.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Where the learned policy still needs improvement.}{7}{section*.2}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {4}{\ignorespaces PPO training trace over 24 episodes. Dense scenarios dominate the later curriculum, throughput remains high in dense-merge episodes, and the policy repeatedly achieves strong dense-traffic performance. The remaining opportunity is to translate that dense-scenario competence into more uniform performance across the full benchmark suite.}}{8}{figure.4}\protected@file@percent }
+\newlabel{fig:ppo-trace}{{4}{8}{PPO training trace over 24 episodes. Dense scenarios dominate the later curriculum, throughput remains high in dense-merge episodes, and the policy repeatedly achieves strong dense-traffic performance. The remaining opportunity is to translate that dense-scenario competence into more uniform performance across the full benchmark suite}{figure.4}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {8}Discussion}{8}{section.8}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {8.1}Benchmark Contribution}{9}{subsection.8.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {8.2}Why the RL Results Are Still Positive}{9}{subsection.8.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {9}Limitations}{9}{section.9}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {10}Conclusions}{10}{section.10}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {11}Reproducibility}{10}{section.11}\protected@file@percent }
+\gdef \@abspage@last{11}

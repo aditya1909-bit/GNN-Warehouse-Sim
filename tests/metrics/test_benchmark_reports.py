@@ -76,6 +76,40 @@ def test_write_benchmark_report_ranks_safe_policy_ahead_of_unsafe_faster_policy(
     assert payload["claims"][0]["winner"] == "challenger"
 
 
+def test_write_benchmark_report_prefers_integrated_conflict_metrics_when_available(tmp_path: Path) -> None:
+    rows = [
+        _row(
+            "scenario_dense",
+            "random_macro",
+            "integrated_baseline",
+            1,
+            throughput=12.0,
+            completion=7.0,
+            coordination_mode="integrated",
+            policy_family="random_integrated",
+            path_conflict_count_before_resolution=9.0,
+            planner_wait_time_total=15.0,
+        ),
+        _row(
+            "scenario_dense",
+            "trained_conflict_graph_macro_ppo",
+            "integrated_learned",
+            1,
+            throughput=12.5,
+            completion=6.5,
+            coordination_mode="integrated",
+            policy_family="learned_integrated",
+            path_conflict_count_before_resolution=4.0,
+            planner_wait_time_total=8.0,
+        ),
+    ]
+
+    written = write_benchmark_report(tmp_path, "dense_benchmark", rows)
+    payload = json.loads(written["summary_json"].read_text(encoding="utf-8"))
+
+    assert payload["claims"][0]["primary_metric"] == "path_conflict_count_before_resolution"
+
+
 def test_write_benchmark_report_emits_generalization_gap_for_seen_and_unseen_regimes(tmp_path: Path) -> None:
     rows = [
         _row("seen_a", "fifo", "dispatch_baseline", 1, throughput=10.0, completion=8.0),
@@ -112,6 +146,8 @@ def _row(
     coordination_mode: str = "dispatch",
     policy_family: str | None = None,
     topology_difficulty: str = "open",
+    path_conflict_count_before_resolution: float | None = None,
+    planner_wait_time_total: float = 0.0,
 ) -> dict[str, object]:
     return {
         "metric_schema_version": METRIC_SCHEMA_VERSION,
@@ -156,8 +192,8 @@ def _row(
         "replanning_count": 0,
         "planner_failure_count": 0,
         "timeout_count": 0,
-        "planner_wait_time_total": 0.0,
-        "path_conflict_count_before_resolution": None,
+        "planner_wait_time_total": planner_wait_time_total,
+        "path_conflict_count_before_resolution": path_conflict_count_before_resolution,
         "sipp_wait_insertion_count": None,
         "mapf_solve_success_rate": None,
         "reward_mean": None,

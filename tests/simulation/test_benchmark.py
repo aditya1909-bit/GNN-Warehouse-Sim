@@ -174,6 +174,7 @@ def test_resolve_runtime_device_only_uses_mps_for_opted_in_learned_policies(monk
     assert resolve_runtime_device("trained_linear_model", use_mps_for_learned_policies=True) == "cpu"
     assert resolve_runtime_device("trained_graph_dispatch_model", use_mps_for_learned_policies=True) == "mps"
     assert resolve_runtime_device("trained_end_to_end_macro_ppo", use_mps_for_learned_policies=True) == "mps"
+    assert resolve_runtime_device("trained_conflict_graph_macro_ppo", use_mps_for_learned_policies=True) == "mps"
     assert resolve_runtime_device("trained_graph_dispatch_model", use_mps_for_learned_policies=False) == "cpu"
 
 

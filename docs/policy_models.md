@@ -18,7 +18,8 @@ The repository now contains two policy families:
 - `prioritized_sipp_coordinator` integrated non-learning coordinator
 - `optimal_mapf_coordinator` integrated exact current-epoch routing coordinator
 - `random_macro` integrated smoke baseline
-- `trained_end_to_end_macro_ppo` integrated artifact-backed macro controller
+- `trained_end_to_end_macro_ppo` legacy integrated artifact-backed macro controller
+- `trained_conflict_graph_macro_ppo` conflict-aware integrated artifact-backed macro controller
 - named scalar feature weights loaded from TOML
 - offline grouped-softmax fitting for the linear scorer
 - one-hidden-layer MLP baseline over the same candidate features
@@ -64,6 +65,7 @@ The repository now contains two policy families:
 - The congestion-aware heuristic gives a stronger non-learning baseline without pretending to be learned.
 - The graph-conditioned scorer actually uses graph structure through message passing instead of only engineered candidate features.
 - The integrated stack adds a separate centralized policy boundary for joint task-plus-route macro decisions.
+- The dense-traffic headline model now consumes explicit robot-robot and macro-level conflict structure rather than relying on a single pooled graph state.
 - The exact integrated MAPF baseline is still bounded to the current replan epoch, which keeps the optimality claim honest.
 
 ## Artifact-Backed Policies
@@ -80,10 +82,10 @@ artifact_path = "artifacts/models/graph_dispatch_model.json"
 
 The dispatch artifacts still output candidate scores within one dispatch event and then rank them.
 
-The integrated artifact chooses task-plus-route macros across robots at replanning boundaries. It is the repository's experimental end-to-end coordination controller, but stronger claims remain benchmark-gated.
+The integrated artifact chooses task-plus-route macros across robots at replanning boundaries. `trained_conflict_graph_macro_ppo` is the primary learned integrated policy surface for dense traffic benchmarks; `trained_end_to_end_macro_ppo` remains a backward-compatible legacy alias.
 
 ## Not Implemented
 
-- richer graph readouts such as endpoint-conditioned pooling
+- richer higher-order interaction models beyond the current conflict-graph approximation
 - broader RL algorithms beyond the current masked PPO fine-tuning loop
 - stronger learned-coordination claims without passing the benchmark gate

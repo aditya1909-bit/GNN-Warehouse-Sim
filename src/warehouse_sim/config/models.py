@@ -303,6 +303,7 @@ class ExperimentConfig:
             "prioritized_sipp_coordinator",
             "optimal_mapf_coordinator",
             "trained_end_to_end_macro_ppo",
+            "trained_conflict_graph_macro_ppo",
             "random_macro",
         }
         if self.simulation.coordination_mode == "dispatch" and self.simulation.policy not in dispatch_policies:
@@ -326,6 +327,7 @@ class ExperimentConfig:
             "trained_mlp_model",
             "trained_graph_dispatch_model",
             "trained_end_to_end_macro_ppo",
+            "trained_conflict_graph_macro_ppo",
         }:
             if self.policy_model is None or self.policy_model.artifact_path is None:
                 raise ConfigValidationError(

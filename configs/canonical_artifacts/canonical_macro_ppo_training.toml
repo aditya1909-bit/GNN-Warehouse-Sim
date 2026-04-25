@@ -5,22 +5,34 @@ scenario_configs = [
   "../scenarios/integrated_reserved_edges.toml",
   "../scenarios/integrated_reserved_nodes.toml",
   "../scenarios/integrated_narrow_bottleneck.toml",
-  "../scenarios/integrated_high_fleet_density.toml",
-  "../scenarios/integrated_free_space.toml",
+  "../scenarios/integrated_high_fleet_density_heavy.toml",
+  "../scenarios/integrated_dense_merge_heavy.toml",
 ]
 train_seeds = [7, 11, 13, 17]
 validation_seeds = [19]
+scenario_weights = { integrated_high_fleet_density_heavy = 3.0, integrated_dense_merge_heavy = 4.0, integrated_narrow_bottleneck = 1.5, integrated_reserved_edges = 1.0, integrated_reserved_nodes = 1.0 }
+
+[model]
+hidden_dim = 64
+warehouse_message_passing_layers = 1
+conflict_message_passing_layers = 2
+dropout = 0.0
+top_k_conflicting_robots = 4
 
 [warm_start]
 epochs = 3
 learning_rate = 0.001
 teacher_policy = "prioritized_sipp_coordinator"
+teacher_mixture = { prioritized_sipp_coordinator = 1.0, optimal_mapf_coordinator = 0.5 }
 
 [reward]
 task_completion = 1.0
 waiting_time = -0.01
 congestion_delay = -0.02
 safety_violation = -1.0
+path_conflict = -0.08
+planner_wait_time = -0.03
+wait_insertion_time = -0.03
 
 [ppo]
 learning_rate = 0.0003
@@ -29,11 +41,19 @@ gamma = 0.99
 gae_lambda = 0.95
 ppo_epochs = 3
 total_episodes = 24
+learner_minibatch_size = 16
+
+[runtime]
+device = "mps"
+rollout_workers = 8
+episodes_per_sync = 8
+inference_batch_size = 16
 
 [benchmark_gate]
 max_safety_violations = 0
 min_task_completion_rate = 0.98
 min_throughput_ratio_vs_baseline = 0.9
+min_policy_distinctness_vs_teacher = 0.05
 
 [output]
 output_dir = "../../outputs/canonical_artifacts/macro_ppo"

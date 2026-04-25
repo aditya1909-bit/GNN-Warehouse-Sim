@@ -13,6 +13,7 @@ from warehouse_sim.learning.training import (
     grouped_softmax_loss,
     standardize_feature_matrix,
 )
+from warehouse_sim.utils.progress import ProgressTracker
 
 
 @dataclass(frozen=True)
@@ -66,6 +67,7 @@ def fit_grouped_linear_model(
     best_epoch = 0
     stale_epochs = 0
     history: list[dict[str, float]] = []
+    progress = ProgressTracker(label="linear_fit", total=config.max_epochs, unit="epoch")
 
     for epoch in range(1, config.max_epochs + 1):
         train_loss, gradient_weights, gradient_bias = _linear_loss_and_gradient(
@@ -94,6 +96,10 @@ def fit_grouped_linear_model(
                 "validation_loss": float(validation_loss),
             }
         )
+        progress.update(
+            epoch,
+            extra=f"train={train_loss:.4f} val={validation_loss:.4f} best={best_validation_loss:.4f}",
+        )
         if validation_loss + 1e-9 < best_validation_loss:
             best_validation_loss = float(validation_loss)
             best_weights = weights.copy()
@@ -104,6 +110,7 @@ def fit_grouped_linear_model(
             stale_epochs += 1
             if stale_epochs >= config.patience:
                 break
+    progress.close(extra=f"best_epoch={best_epoch} best_val={best_validation_loss:.4f}")
 
     raw_weights = best_weights / scales
     raw_bias = float(best_bias - np.dot(means / scales, best_weights))

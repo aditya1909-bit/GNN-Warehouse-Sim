@@ -773,6 +773,8 @@ def _policy_family(policy: str) -> str:
         return "planner_integrated"
     if policy == "trained_end_to_end_macro_ppo":
         return "learned_integrated"
+    if policy == "trained_conflict_graph_macro_ppo":
+        return "learned_integrated"
     return "custom"
 
 
@@ -788,6 +790,8 @@ def _policy_role(policy: str) -> str:
     if policy in {"prioritized_sipp_coordinator", "optimal_mapf_coordinator"}:
         return "integrated_planner"
     if policy == "trained_end_to_end_macro_ppo":
+        return "integrated_learned"
+    if policy == "trained_conflict_graph_macro_ppo":
         return "integrated_learned"
     return "custom"
 
@@ -851,6 +855,7 @@ def _policy_artifacts_from_manifest(artifact_manifest: Path) -> dict[str, Path]:
             "trained_mlp_model",
             "trained_graph_dispatch_model",
             "trained_end_to_end_macro_ppo",
+            "trained_conflict_graph_macro_ppo",
         )
         if policy_name in aliases
     }

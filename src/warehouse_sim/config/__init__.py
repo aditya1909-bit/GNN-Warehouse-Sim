@@ -5,10 +5,12 @@ from warehouse_sim.config.benchmark_models import BenchmarkConfig
 from warehouse_sim.config.integrated_rl_loader import load_integrated_rl_training_config
 from warehouse_sim.config.integrated_rl_models import (
     BenchmarkGateConfig,
+    IntegratedModelConfig,
     IntegratedPPOConfig,
     IntegratedRLCurriculumConfig,
     IntegratedRewardConfig,
     IntegratedRLTrainingConfig,
+    IntegratedRuntimeConfig,
     IntegratedWarmStartConfig,
 )
 from warehouse_sim.config.learning_loader import load_offline_training_config
@@ -49,8 +51,10 @@ __all__ = [
     "IntegratedRLCurriculumConfig",
     "IntegratedRLTrainingConfig",
     "IntegratedRewardConfig",
+    "IntegratedRuntimeConfig",
     "IntegratedWarmStartConfig",
     "LayoutConfig",
+    "IntegratedModelConfig",
     "OfflineDatasetConfig",
     "OfflineModelConfig",
     "OfflineReportingConfig",

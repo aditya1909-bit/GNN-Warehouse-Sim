@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from warehouse_sim.agents import RobotSpec, RobotState
 from warehouse_sim.environment import WarehouseEnvironment
@@ -436,6 +436,29 @@ def build_integrated_observation(
         )
         for robot in robot_states
     )
+    (
+        macro_candidates,
+        robot_robot_conflict_edges,
+        robot_robot_conflict_features,
+        robot_macro_incidence_edges,
+        robot_macro_incidence_features,
+        macro_conflict_edges,
+        macro_conflict_features,
+        global_density_features,
+    ) = _augment_macro_candidates_with_conflict_features(
+        environment=environment,
+        robot_states=robot_states,
+        macro_candidates=macro_candidates,
+        occupancy=occupancy,
+        released_task_ids=released_task_ids,
+        claimed_task_ids=claimed_task_ids,
+        completed_task_ids=completed_task_ids,
+        current_time=current_time,
+        config=config,
+    )
+    global_candidate_task_indices, global_candidate_robot_indices, robot_candidate_slices = _global_candidate_indexing(
+        macro_candidates
+    )
     return IntegratedObservation(
         current_time=current_time,
         graph_node_ids=node_ids,
@@ -447,6 +470,221 @@ def build_integrated_observation(
         robot_ids=tuple(robot.spec.robot_id for robot in robot_states),
         task_ids=task_ids,
         macro_candidates=macro_candidates,
+        robot_robot_conflict_edges=robot_robot_conflict_edges,
+        robot_robot_conflict_features=robot_robot_conflict_features,
+        robot_macro_incidence_edges=robot_macro_incidence_edges,
+        robot_macro_incidence_features=robot_macro_incidence_features,
+        macro_conflict_edges=macro_conflict_edges,
+        macro_conflict_features=macro_conflict_features,
+        global_density_features=global_density_features,
+        global_candidate_task_indices=global_candidate_task_indices,
+        global_candidate_robot_indices=global_candidate_robot_indices,
+        robot_candidate_slices=robot_candidate_slices,
+    )
+
+
+def _global_candidate_indexing(
+    macro_candidates: tuple[tuple[MacroCandidate, ...], ...],
+) -> tuple[tuple[int, ...], tuple[int, ...], tuple[tuple[int, int], ...]]:
+    task_index_by_id: dict[str, int] = {}
+    global_candidate_task_indices: list[int] = []
+    global_candidate_robot_indices: list[int] = []
+    robot_candidate_slices: list[tuple[int, int]] = []
+    next_task_index = 0
+    next_global_index = 0
+    for robot_index, candidates in enumerate(macro_candidates):
+        start_index = next_global_index
+        for candidate in candidates:
+            global_candidate_robot_indices.append(robot_index)
+            if candidate.task_id is None:
+                global_candidate_task_indices.append(-1)
+            else:
+                if candidate.task_id not in task_index_by_id:
+                    task_index_by_id[candidate.task_id] = next_task_index
+                    next_task_index += 1
+                global_candidate_task_indices.append(task_index_by_id[candidate.task_id])
+            next_global_index += 1
+        robot_candidate_slices.append((start_index, next_global_index))
+    return (
+        tuple(global_candidate_task_indices),
+        tuple(global_candidate_robot_indices),
+        tuple(robot_candidate_slices),
+    )
+
+
+def _augment_macro_candidates_with_conflict_features(
+    *,
+    environment: WarehouseEnvironment,
+    robot_states: tuple[RobotState, ...],
+    macro_candidates: tuple[tuple[MacroCandidate, ...], ...],
+    occupancy: ContinuousOccupancyTable,
+    released_task_ids: set[str],
+    claimed_task_ids: set[str],
+    completed_task_ids: set[str],
+    current_time: float,
+    config: SimulationConfig,
+) -> tuple[
+    tuple[tuple[MacroCandidate, ...], ...],
+    tuple[tuple[int, int], ...],
+    tuple[tuple[float, ...], ...],
+    tuple[tuple[int, int], ...],
+    tuple[tuple[float, ...], ...],
+    tuple[tuple[int, int], ...],
+    tuple[tuple[float, ...], ...],
+    tuple[float, ...],
+]:
+    flattened: list[tuple[int, int, MacroCandidate]] = []
+    robot_macro_incidence_edges: list[tuple[int, int]] = []
+    robot_macro_incidence_features: list[tuple[float, ...]] = []
+    macro_aggregates = {
+        (robot_index, candidate_index): {
+            "shared_route_segment_count": 0.0,
+            "shared_chokepoint_count": 0.0,
+            "predicted_overlap_time": 0.0,
+            "competing_task_usage_count": 0.0,
+            "planner_estimated_conflict_count": 0.0,
+        }
+        for robot_index, candidates in enumerate(macro_candidates)
+        for candidate_index, _candidate in enumerate(candidates)
+    }
+    robot_pair_aggregates: dict[tuple[int, int], list[float]] = {}
+    macro_conflict_edges: list[tuple[int, int]] = []
+    macro_conflict_features: list[tuple[float, ...]] = []
+
+    for robot_index, candidates in enumerate(macro_candidates):
+        for candidate_index, candidate in enumerate(candidates):
+            flat_index = len(flattened)
+            flattened.append((robot_index, candidate_index, candidate))
+            robot_macro_incidence_edges.append((robot_index, flat_index))
+            robot_macro_incidence_features.append(_robot_macro_incidence_features(candidate, current_time))
+
+    for left_flat_index, (left_robot_index, left_candidate_index, left_candidate) in enumerate(flattened):
+        for right_flat_index in range(left_flat_index + 1, len(flattened)):
+            right_robot_index, right_candidate_index, right_candidate = flattened[right_flat_index]
+            if left_robot_index == right_robot_index:
+                continue
+            feature_row = _macro_conflict_feature_row(
+                environment=environment,
+                left=left_candidate,
+                right=right_candidate,
+                current_time=current_time,
+            )
+            if feature_row[-1] <= 0.0:
+                continue
+            macro_conflict_edges.extend(
+                [
+                    (left_flat_index, right_flat_index),
+                    (right_flat_index, left_flat_index),
+                ]
+            )
+            macro_conflict_features.extend([feature_row, feature_row])
+            for aggregate_key in (
+                (left_robot_index, left_candidate_index),
+                (right_robot_index, right_candidate_index),
+            ):
+                macro_aggregates[aggregate_key]["shared_route_segment_count"] += feature_row[0]
+                macro_aggregates[aggregate_key]["shared_chokepoint_count"] += feature_row[1]
+                macro_aggregates[aggregate_key]["predicted_overlap_time"] += feature_row[2]
+                macro_aggregates[aggregate_key]["competing_task_usage_count"] += feature_row[3]
+                macro_aggregates[aggregate_key]["planner_estimated_conflict_count"] += feature_row[4]
+            robot_pair_key = (left_robot_index, right_robot_index)
+            current_best = robot_pair_aggregates.get(robot_pair_key)
+            if current_best is None or feature_row[-1] > current_best[-1]:
+                robot_pair_aggregates[robot_pair_key] = list(feature_row)
+                robot_pair_aggregates[(right_robot_index, left_robot_index)] = list(feature_row)
+
+    enriched_candidates = tuple(
+        tuple(
+            replace(
+                candidate,
+                shared_route_segment_count=macro_aggregates[(robot_index, candidate_index)]["shared_route_segment_count"],
+                shared_chokepoint_count=macro_aggregates[(robot_index, candidate_index)]["shared_chokepoint_count"],
+                predicted_overlap_time=macro_aggregates[(robot_index, candidate_index)]["predicted_overlap_time"],
+                competing_task_usage_count=macro_aggregates[(robot_index, candidate_index)]["competing_task_usage_count"],
+                planner_estimated_conflict_count=macro_aggregates[(robot_index, candidate_index)]["planner_estimated_conflict_count"],
+            )
+            for candidate_index, candidate in enumerate(candidates)
+        )
+        for robot_index, candidates in enumerate(macro_candidates)
+    )
+    robot_robot_conflict_edges = tuple(robot_pair_aggregates.keys())
+    robot_robot_conflict_features = tuple(tuple(values) for values in robot_pair_aggregates.values())
+    occupancy_edges = tuple(occupancy.future_traversals(current_time))
+    total_edges = sum(len(candidate_group) for candidate_group in macro_candidates)
+    active_ready_tasks = len(released_task_ids - claimed_task_ids - completed_task_ids)
+    global_density_features = (
+        len(robot_states) / max(len(environment.graph.nodes()), 1),
+        len(occupancy_edges) / max(len(environment.graph.edges()), 1),
+        active_ready_tasks / max(len(robot_states), 1),
+        sum(
+            1.0
+            for candidates in enriched_candidates
+            for candidate in candidates
+            if candidate.planner_estimated_conflict_count > 0.0
+        ) / max(total_edges, 1),
+        current_time / max(config.horizon_seconds or current_time or 1.0, 1e-6),
+    )
+    return (
+        enriched_candidates,
+        robot_robot_conflict_edges,
+        robot_robot_conflict_features,
+        tuple(robot_macro_incidence_edges),
+        tuple(robot_macro_incidence_features),
+        tuple(macro_conflict_edges),
+        tuple(macro_conflict_features),
+        global_density_features,
+    )
+
+
+def _robot_macro_incidence_features(candidate: MacroCandidate, current_time: float) -> tuple[float, ...]:
+    return (
+        candidate.estimated_completion_time - current_time,
+        float(len(candidate.route_nodes)),
+        float(len(candidate.route_edges)),
+        1.0 if candidate.task_id is not None else 0.0,
+        1.0 if candidate.macro_type == "task_route" else 0.0,
+        1.0 if candidate.macro_type == "charge_route" else 0.0,
+    )
+
+
+def _macro_conflict_feature_row(
+    *,
+    environment: WarehouseEnvironment,
+    left: MacroCandidate,
+    right: MacroCandidate,
+    current_time: float,
+) -> tuple[float, float, float, float, float, float]:
+    left_edges = set(left.route_edges)
+    right_edges = set(right.route_edges)
+    shared_route_segment_count = float(len(left_edges & right_edges))
+    left_nodes = set(left.route_nodes)
+    right_nodes = set(right.route_nodes)
+    shared_nodes = left_nodes & right_nodes
+    shared_chokepoint_count = float(
+        sum(
+            1
+            for node_id in shared_nodes
+            if len(tuple(environment.graph.neighbors(node_id))) <= 2
+        )
+    )
+    competing_task_usage = 1.0 if left.task_id is not None and left.task_id == right.task_id else 0.0
+    overlap_horizon = max(min(left.estimated_completion_time, right.estimated_completion_time) - current_time, 0.0)
+    predicted_overlap_time = overlap_horizon * (
+        shared_route_segment_count + shared_chokepoint_count + competing_task_usage
+    ) / max(len(left.route_edges) + len(right.route_edges), 1)
+    planner_estimated_conflict_count = (
+        shared_route_segment_count
+        + shared_chokepoint_count
+        + competing_task_usage
+    )
+    total_pressure = planner_estimated_conflict_count + predicted_overlap_time
+    return (
+        shared_route_segment_count,
+        shared_chokepoint_count,
+        predicted_overlap_time,
+        competing_task_usage,
+        planner_estimated_conflict_count,
+        total_pressure,
     )
 
 

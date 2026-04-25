@@ -133,6 +133,21 @@ class EndToEndMacroArtifactPolicy(IntegratedCoordinatorPolicy):
             return self._model.act(observation, greedy=True)
 
 
+class ConflictGraphMacroArtifactPolicy(IntegratedCoordinatorPolicy):
+    """Artifact-backed conflict-aware integrated macro controller."""
+
+    name = "trained_conflict_graph_macro_ppo"
+    planner_name = "trained_conflict_graph_macro_ppo"
+
+    def __init__(self, model) -> None:
+        self._model = model
+
+    def select_macros(self, observation: IntegratedObservation) -> IntegratedPolicyOutput:
+        torch = require_dependency("torch", feature="trained conflict-graph macro PPO inference")
+        with torch.no_grad():
+            return self._model.act(observation, greedy=True)
+
+
 class OptimalMAPFCoordinatorPolicy(IntegratedCoordinatorPolicy):
     """Exact joint-search router over the current macro candidate set."""
 

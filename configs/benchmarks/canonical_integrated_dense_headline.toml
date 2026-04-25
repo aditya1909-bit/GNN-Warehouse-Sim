@@ -1,20 +1,20 @@
 [benchmark]
-name = "canonical_integrated_benchmark_heavy"
-scenario_family = "canonical_integrated_heavy"
+name = "canonical_integrated_dense_headline"
+scenario_family = "canonical_integrated_dense_headline"
 scenario_configs = [
-  "../scenarios/integrated_narrow_bottleneck.toml",
-  "../scenarios/integrated_tight_chokepoint_heavy.toml",
   "../scenarios/integrated_high_fleet_density_heavy.toml",
   "../scenarios/integrated_dense_merge_heavy.toml",
+  "../scenarios/integrated_narrow_bottleneck.toml",
+  "../scenarios/integrated_tight_chokepoint_heavy.toml",
 ]
 policies = [
+  "random_macro",
   "prioritized_sipp_coordinator",
   "optimal_mapf_coordinator",
-  "random_macro",
   "trained_conflict_graph_macro_ppo",
 ]
 artifact_manifest = "../../outputs/canonical_artifacts/manifest.json"
-output_dir = "../../outputs/benchmarks/canonical_integrated_benchmark_heavy"
+output_dir = "../../outputs/benchmarks/canonical_integrated_dense_headline"
 write_plots = false
 write_manifest = true
 seeds = [7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89, 97, 101, 103, 107]

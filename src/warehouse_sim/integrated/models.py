@@ -67,6 +67,11 @@ class MacroCandidate:
     dropoff_node: str | None = None
     charging_node: str | None = None
     leg_points: tuple[tuple[Point2D, ...], ...] = ()
+    shared_route_segment_count: float = 0.0
+    shared_chokepoint_count: float = 0.0
+    predicted_overlap_time: float = 0.0
+    competing_task_usage_count: float = 0.0
+    planner_estimated_conflict_count: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -162,6 +167,26 @@ class IntegratedObservation:
     robot_ids: tuple[str, ...]
     task_ids: tuple[str, ...]
     macro_candidates: tuple[tuple[MacroCandidate, ...], ...]
+    robot_robot_conflict_edges: tuple[tuple[int, int], ...] = ()
+    robot_robot_conflict_features: tuple[tuple[float, ...], ...] = ()
+    robot_macro_incidence_edges: tuple[tuple[int, int], ...] = ()
+    robot_macro_incidence_features: tuple[tuple[float, ...], ...] = ()
+    macro_conflict_edges: tuple[tuple[int, int], ...] = ()
+    macro_conflict_features: tuple[tuple[float, ...], ...] = ()
+    global_density_features: tuple[float, ...] = ()
+    global_candidate_task_indices: tuple[int, ...] = ()
+    global_candidate_robot_indices: tuple[int, ...] = ()
+    robot_candidate_slices: tuple[tuple[int, int], ...] = ()
+
+
+@dataclass(frozen=True)
+class BatchIntegratedObservation:
+    """Batch wrapper for integrated inference."""
+
+    observations: tuple[IntegratedObservation, ...]
+    graph_batch_index: tuple[int, ...] = ()
+    robot_batch_index: tuple[int, ...] = ()
+    macro_batch_index: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)

@@ -505,13 +505,24 @@ def _comparison_type(baseline: dict[str, object], challenger: dict[str, object])
 
 
 def _primary_claim_metric(baseline: dict[str, object], challenger: dict[str, object]) -> str:
-    ordered_metrics = (
-        "collision_event_count",
-        "throughput",
-        "p95_task_completion_time",
-        "mean_task_completion_time",
-        "makespan",
-    )
+    if str(baseline.get("coordination_mode")) == "integrated":
+        ordered_metrics = (
+            "path_conflict_count_before_resolution",
+            "planner_wait_time_total",
+            "collision_event_count",
+            "throughput",
+            "p95_task_completion_time",
+            "mean_task_completion_time",
+            "makespan",
+        )
+    else:
+        ordered_metrics = (
+            "collision_event_count",
+            "throughput",
+            "p95_task_completion_time",
+            "mean_task_completion_time",
+            "makespan",
+        )
     for metric_name in ordered_metrics:
         if baseline.get(f"{metric_name}_mean") is None or challenger.get(f"{metric_name}_mean") is None:
             continue
@@ -652,6 +663,17 @@ def _aggregate_ranking_tuple(row: dict[str, object]) -> tuple[float, float, floa
     p95_completion = row.get("p95_task_completion_time_mean")
     mean_completion = row.get("mean_task_completion_time_mean")
     makespan = row.get("makespan_mean")
+    if str(row.get("coordination_mode")) == "integrated":
+        path_conflicts = row.get("path_conflict_count_before_resolution_mean")
+        planner_wait = row.get("planner_wait_time_total_mean")
+        return (
+            float(path_conflicts) if path_conflicts is not None else float("inf"),
+            float(planner_wait) if planner_wait is not None else float("inf"),
+            float(collision_event_count) if collision_event_count is not None else 0.0,
+            -float(throughput) if throughput is not None else float("inf"),
+            float(p95_completion) if p95_completion is not None else float("inf"),
+            float(mean_completion) if mean_completion is not None else float("inf"),
+        )
     return (
         1.0 if collision_event_count is not None and float(collision_event_count) > 1e-9 else 0.0,
         float(collision_event_count) if collision_event_count is not None else 0.0,

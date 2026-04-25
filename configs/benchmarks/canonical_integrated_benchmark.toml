@@ -7,13 +7,13 @@ scenario_configs = [
   "../scenarios/integrated_narrow_bottleneck.toml",
   "../scenarios/integrated_tight_chokepoint.toml",
   "../scenarios/integrated_high_fleet_density.toml",
-  "../scenarios/integrated_free_space.toml",
+  "../scenarios/integrated_dense_merge_heavy.toml",
 ]
 policies = [
   "prioritized_sipp_coordinator",
   "optimal_mapf_coordinator",
   "random_macro",
-  "trained_end_to_end_macro_ppo",
+  "trained_conflict_graph_macro_ppo",
 ]
 artifact_manifest = "../../outputs/canonical_artifacts/manifest.json"
 output_dir = "../../outputs/benchmarks/canonical_integrated_benchmark"

@@ -17,6 +17,7 @@ from warehouse_sim.learning.cli import run_offline_training_from_config
 from warehouse_sim.reporting import write_artifact_manifest, write_config_snapshot
 from warehouse_sim.simulation import run_experiment_from_config
 from warehouse_sim.utils.dependencies import require_dependency
+from warehouse_sim.utils.progress import ProgressTracker
 
 
 def build_canonical_artifacts(
@@ -34,17 +35,22 @@ def build_canonical_artifacts(
     output_dir.mkdir(parents=True, exist_ok=True)
     dataset_output_dir = output_dir / "dispatch_dataset"
     written: dict[str, Path] = {}
+    stage_progress = ProgressTracker(label="canonical_artifacts", total=5, unit="stage")
 
     corpus_written = _build_dispatch_corpus(
         config_path=dispatch_corpus_config_path,
         output_dir=dataset_output_dir,
     )
     written.update({f"dataset_{label}": path for label, path in corpus_written.items()})
+    stage_progress.update(1, extra="dispatch dataset ready", force=True)
 
-    for prefix, config_path in (
-        ("linear", linear_config_path),
-        ("mlp", mlp_config_path),
-        ("graph", graph_config_path),
+    for stage_index, (prefix, config_path) in enumerate(
+        (
+            ("linear", linear_config_path),
+            ("mlp", mlp_config_path),
+            ("graph", graph_config_path),
+        ),
+        start=2,
     ):
         loaded = load_offline_training_config(config_path)
         outputs = run_offline_training_from_config(
@@ -55,12 +61,14 @@ def build_canonical_artifacts(
             )
         )
         written.update({f"{prefix}_{label}": path for label, path in outputs.items()})
+        stage_progress.update(stage_index, extra=f"{prefix} artifact ready", force=True)
 
     loaded_macro = load_integrated_rl_training_config(macro_config_path)
     require_dependency("torch", feature="Canonical integrated PPO artifact generation")
     require_dependency("torch_geometric", feature="Canonical integrated PPO artifact generation")
     from warehouse_sim.learning.integrated_rl import run_integrated_rl_training_from_config
 
+    stage_progress.update(4, extra="starting macro PPO", force=True)
     macro_outputs = run_integrated_rl_training_from_config(
         replace(
             loaded_macro,
@@ -68,6 +76,7 @@ def build_canonical_artifacts(
         )
     )
     written.update({f"macro_{label}": path for label, path in macro_outputs.items()})
+    stage_progress.update(5, extra="macro PPO ready", force=True)
 
     config_snapshot = write_config_snapshot(
         output_dir / "config_snapshot.toml",
@@ -95,15 +104,18 @@ def build_canonical_artifacts(
                 "trained_mlp_model": _relative_to_manifest(output_dir / "manifest.json", written["mlp_artifact"]),
                 "trained_graph_dispatch_model": _relative_to_manifest(output_dir / "manifest.json", written["graph_artifact"]),
                 "trained_end_to_end_macro_ppo": _relative_to_manifest(output_dir / "manifest.json", written["macro_artifact"]),
+                "trained_conflict_graph_macro_ppo": _relative_to_manifest(output_dir / "manifest.json", written["macro_artifact"]),
             },
             "artifact_bundle": {
                 "dispatch_linear": str(written["linear_artifact"]),
                 "dispatch_mlp": str(written["mlp_artifact"]),
                 "dispatch_graph": str(written["graph_artifact"]),
                 "macro_ppo": str(written["macro_artifact"]),
+                "conflict_graph_macro_ppo": str(written["macro_artifact"]),
             }
         },
     )
+    stage_progress.close(extra="artifact bundle complete")
     return written
 
 
@@ -125,6 +137,9 @@ def _build_dispatch_corpus(
         shutil.rmtree(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     written: dict[str, Path] = {}
+    total_runs = len(scenario_paths) * len(seeds)
+    progress = ProgressTracker(label="dispatch_corpus", total=total_runs, unit="run")
+    completed_runs = 0
     for scenario_path in scenario_paths:
         base_config = load_experiment_config(scenario_path)
         for seed in seeds:
@@ -141,7 +156,10 @@ def _build_dispatch_corpus(
                 force_write_observation_dataset=True,
             )
             written[f"{base_config.name}_seed_{seed}_dataset_manifest"] = run_written["dataset_manifest"]
+            completed_runs += 1
+            progress.update(completed_runs, extra=f"{base_config.name} seed {seed}")
     written["corpus_root"] = output_dir
+    progress.close(extra="dataset corpus complete")
     return written
 
 

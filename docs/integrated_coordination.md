@@ -14,7 +14,7 @@ This stack supports:
 - multi-route continuous branching over per-leg geometric alternatives
 - battery-aware charge macros alongside task macros
 - explicit collision-event reporting
-- an experimental end-to-end macro PPO controller
+- a conflict-aware dense-traffic macro PPO controller
 
 ## Coordination Mode
 
@@ -43,7 +43,8 @@ max_route_options_per_pair = 3
 - `prioritized_sipp_coordinator`: centralized non-learning baseline
 - `optimal_mapf_coordinator`: exact joint-search router over the current replan epoch's assigned macro set
 - `random_macro`: weak integrated smoke baseline
-- `trained_end_to_end_macro_ppo`: artifact-backed macro PPO controller
+- `trained_conflict_graph_macro_ppo`: artifact-backed conflict-graph macro PPO controller
+- `trained_end_to_end_macro_ppo`: backward-compatible legacy policy name for older artifacts/configs
 
 The `optimal_mapf_coordinator` claim is intentionally bounded. It is exact over the current epoch's finite macro candidate surface and realized continuous trajectories, not over future task releases or the full warehouse-level task-allocation problem.
 
@@ -72,10 +73,11 @@ Summary metrics now also include:
 
 The integrated learned controller exists and can be trained and loaded back into the simulator.
 
-The repository should only claim learned end-to-end warehouse coordination when held-out repeated-seed benchmarks satisfy the configured benchmark gate:
+The repository should only claim dense-traffic learned warehouse coordination when held-out repeated-seed benchmarks satisfy the configured benchmark gate:
 
 - zero safety violations
 - task completion rate threshold
 - throughput ratio threshold versus `prioritized_sipp_coordinator`
+- policy-distinctness threshold versus the warm-start teacher
 
-Until then, the learned policy should be described as an experimental integrated coordinator.
+Until then, the learned policy should be described as a benchmark-gated dense-traffic integrated coordinator.

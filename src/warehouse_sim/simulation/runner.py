@@ -16,6 +16,7 @@ from warehouse_sim.environment import (
 from warehouse_sim.graph import NodeType, SyntheticGridLayoutConfig, build_synthetic_grid_layout
 from warehouse_sim.integrated.engine import run_integrated_simulation
 from warehouse_sim.integrated.policies import (
+    ConflictGraphMacroArtifactPolicy,
     EndToEndMacroArtifactPolicy,
     OptimalMAPFCoordinatorPolicy,
     PrioritizedSIPPCoordinatorPolicy,
@@ -48,6 +49,9 @@ from warehouse_sim.simulation.models import (
 )
 from warehouse_sim.tasks import DemandTaskAdapterConfig, Task, tasks_from_demand_records
 from warehouse_sim.utils.dependencies import require_dependency
+
+_INTEGRATED_POLICY_CACHE: dict[tuple[str, str, str], object] = {}
+_DISPATCH_POLICY_CACHE: dict[tuple[str, str, str], object] = {}
 
 
 def run_experiment_from_config(
@@ -275,6 +279,7 @@ def resolve_runtime_device(policy_name: str, *, use_mps_for_learned_policies: bo
     if policy_name not in {
         "trained_graph_dispatch_model",
         "trained_end_to_end_macro_ppo",
+        "trained_conflict_graph_macro_ppo",
     }:
         return "cpu"
     return "mps" if mps_available() else "cpu"
@@ -327,7 +332,11 @@ def _build_policy(config: ExperimentConfig, *, runtime_device: str = "cpu"):
         assert config.policy_model.artifact_path is not None
         from warehouse_sim.learning.graph_model import load_graph_dispatch_model
 
-        loaded = load_graph_dispatch_model(config.policy_model.artifact_path, device=runtime_device)
+        cache_key = (policy_name, str(config.policy_model.artifact_path), runtime_device)
+        loaded = _DISPATCH_POLICY_CACHE.get(cache_key)
+        if loaded is None:
+            loaded = load_graph_dispatch_model(config.policy_model.artifact_path, device=runtime_device)
+            _DISPATCH_POLICY_CACHE[cache_key] = loaded
         return GraphDispatchArtifactPolicy(
             model=loaded.model,
             candidate_feature_names=tuple(loaded.artifact.parameters["candidate_feature_names"]),
@@ -350,8 +359,23 @@ def _build_integrated_policy(config: ExperimentConfig, *, runtime_device: str = 
         assert config.policy_model.artifact_path is not None
         from warehouse_sim.learning.integrated_rl import load_end_to_end_macro_model
 
-        loaded = load_end_to_end_macro_model(config.policy_model.artifact_path, device=runtime_device)
+        cache_key = (policy_name, str(config.policy_model.artifact_path), runtime_device)
+        loaded = _INTEGRATED_POLICY_CACHE.get(cache_key)
+        if loaded is None:
+            loaded = load_end_to_end_macro_model(config.policy_model.artifact_path, device=runtime_device)
+            _INTEGRATED_POLICY_CACHE[cache_key] = loaded
         return EndToEndMacroArtifactPolicy(loaded.model)
+    if policy_name == "trained_conflict_graph_macro_ppo":
+        assert config.policy_model is not None
+        assert config.policy_model.artifact_path is not None
+        from warehouse_sim.learning.integrated_rl import load_conflict_graph_macro_model
+
+        cache_key = (policy_name, str(config.policy_model.artifact_path), runtime_device)
+        loaded = _INTEGRATED_POLICY_CACHE.get(cache_key)
+        if loaded is None:
+            loaded = load_conflict_graph_macro_model(config.policy_model.artifact_path, device=runtime_device)
+            _INTEGRATED_POLICY_CACHE[cache_key] = loaded
+        return ConflictGraphMacroArtifactPolicy(loaded.model)
     raise ValueError(f"Unknown integrated policy: {policy_name}")
 
 

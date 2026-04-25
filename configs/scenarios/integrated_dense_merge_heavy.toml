@@ -1,0 +1,63 @@
+name = "integrated_dense_merge_heavy"
+
+[layout]
+rows = 9
+columns = 9
+edge_length = 1.0
+travel_speed = 1.0
+storage_cell = [0, 0]
+dropoff_cell = [8, 8]
+staging_cell = [8, 0]
+blocked_cells = [
+  [1, 2], [1, 6],
+  [2, 2], [2, 6],
+  [3, 2], [3, 6],
+  [5, 2], [5, 6],
+  [6, 2], [6, 6],
+  [7, 2], [7, 6],
+  [4, 0], [4, 1], [4, 7], [4, 8],
+]
+directed_edges = []
+
+[demand]
+horizon_seconds = 2100.0
+mean_interval = 18.0
+seed = 73
+min_tasks = 0
+rush_start = 120.0
+rush_end = 1980.0
+lunch_start = 2100.0
+lunch_end = 2100.0
+rush_multiplier = 2.8
+
+[robots]
+count = 14
+speed_multiplier = 1.0
+initial_zone = "staging_zone"
+
+[tasks]
+default_pickup_zone = "storage_zone"
+default_dropoff_zone = "dropoff_zone"
+default_task_type = "pick"
+default_priority = 1
+default_service_time_estimate = 18.0
+task_id_prefix = "task"
+
+[simulation]
+coordination_mode = "integrated"
+policy = "prioritized_sipp_coordinator"
+horizon_seconds = 2100.0
+continue_until_all_tasks_complete = true
+execution_model = "idealized"
+
+[coordination]
+control_dt = 0.25
+replan_period = 0.5
+robot_radius = 0.2
+collision_clearance = 0.05
+k_shortest_paths = 4
+max_route_options_per_pair = 4
+
+[reporting]
+output_dir = "outputs/scenarios/integrated_dense_merge_heavy"
+write_plots = false

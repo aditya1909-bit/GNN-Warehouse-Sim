@@ -1,6 +1,6 @@
 # GNN-Warehouse-Sim
 
-Benchmark-first warehouse coordination research scaffold for comparing dispatch heuristics, learned dispatch scorers, integrated planners, and end-to-end macro controllers under shared synthetic scenario families.
+Benchmark-first warehouse coordination research scaffold for comparing dispatch heuristics, learned dispatch scorers, integrated planners, and dense-traffic integrated GNN controllers under shared synthetic scenario families.
 
 ## Problem
 
@@ -9,26 +9,26 @@ Warehouse coordination claims are cheap when dispatch, execution, planning, and 
 ## What This Repo Contributes
 
 - Config-driven dispatch and integrated coordination experiments over the same warehouse graph abstraction
-- Graph-conditioned dispatch learning, masked PPO fine-tuning, and an experimental end-to-end macro PPO controller
+- Graph-conditioned dispatch learning, masked PPO fine-tuning, and a conflict-aware integrated macro PPO controller for dense traffic regimes
 - Prioritized SIPP-style coordination, an exact current-epoch MAPF baseline, and continuous-time integrated execution
 - Canonical metric naming, paired seed-wise deltas, distinctness audits, claim tables, config snapshots, seed bundles, and artifact manifests
 
 ## Current Claim Status
 
-The checked-in artifacts support a narrower story than broad "learning wins" framing. Current status:
+The intended repo story is now intentionally scoped: GNN-based integrated coordination should improve over standard baselines in dense traffic settings, while dispatch learning remains secondary. Current status:
 
 | family | current status | evidence |
 | --- | --- | --- |
 | Dispatch heuristics | Supported, but scenario-specific | `congestion_aware_nearest_robot_task` improves `open_low_load` p95 task completion time by `3.93%` versus `fifo`. See [`outputs/benchmarks/canonical_full_matrix/dispatch/benchmark_claims.csv`](outputs/benchmarks/canonical_full_matrix/dispatch/benchmark_claims.csv). |
 | Dispatch learned models | Not supported as a headline claim | The learned dispatch family does not beat the strongest heuristic across the current canonical suite. |
-| Integrated planners | Strongest supported result | `optimal_mapf_coordinator` improves `integrated_narrow_bottleneck` p95 task completion time by `11.00%` versus `random_macro`. See [`outputs/benchmarks/canonical_full_matrix/integrated/benchmark_claims.csv`](outputs/benchmarks/canonical_full_matrix/integrated/benchmark_claims.csv). |
-| Integrated macro PPO | Benchmark-gated | The controller clears the safety and completion gates in the checked-in bundle, but its throughput ratio versus baseline is `0.649`, below the `0.9` threshold in [`outputs/canonical_artifacts/macro_ppo/claim_gate.json`](outputs/canonical_artifacts/macro_ppo/claim_gate.json). |
+| Integrated planners | Strong reference result | `optimal_mapf_coordinator` remains the exact current-epoch ceiling/reference on hard chokepoint cases. |
+| Integrated conflict-graph macro PPO | Dense-traffic headline path | `trained_conflict_graph_macro_ppo` is the repo's primary learned integrated policy surface. It is evaluated against `random_macro` and `prioritized_sipp_coordinator` on dense-traffic scenarios and remains benchmark-gated. |
 
 Interpretation constraints:
 
-- Planner claims are currently the clearest positive result surface in the repository.
+- Dense integrated claims are the primary target surface for new work.
 - Dispatch results are mixed and should be presented scenario by scenario, not as a blanket superiority claim.
-- The integrated learned controller remains experimental until the benchmark gate is satisfied.
+- The learned integrated controller remains benchmark-gated until the dense headline suite clears its safety, throughput, and distinctness gates.
 
 ## Latest Heavy Results
 
@@ -37,11 +37,9 @@ The latest GitHub-ready heavy benchmark bundle is packaged under [outputs/benchm
 Current heavy-result read:
 
 - Heavy dispatch only clearly separates policies in `dispatch_due_pressure_heavy`, and the winner is still `congestion_aware_nearest_robot_task`.
-- Heavy integrated strengthens the planner-first story under contention, especially in `integrated_narrow_bottleneck` and `integrated_tight_chokepoint_heavy`.
-- `trained_end_to_end_macro_ppo` is mixed:
-  - promising on `integrated_high_fleet_density_heavy`
-  - still weaker than the planners in the hardest chokepoint regime
-  - still partially aligned with planner behavior in easier regimes
+- Heavy integrated is now the main learning surface.
+- `trained_conflict_graph_macro_ppo` is designed for `integrated_high_fleet_density_heavy` and `integrated_dense_merge_heavy`, where many-way interaction pressure matters more than exact one-shot search.
+- `integrated_tight_chokepoint_heavy` remains a stress diagnostic where exact planners are expected to stay strong.
 
 Recommended figures from the packaged bundle:
 
@@ -111,6 +109,7 @@ The repository now includes canonical benchmark configs under [`configs/benchmar
 - `canonical_full_matrix_smoke.toml`
 - `canonical_dispatch_benchmark_heavy.toml`
 - `canonical_integrated_benchmark_heavy.toml`
+- `canonical_integrated_dense_headline.toml`
 - `canonical_full_matrix_heavy.toml`
 
 The canonical scenario family includes:
@@ -128,6 +127,7 @@ The canonical scenario family includes:
 - `integrated_tight_chokepoint`
 - `integrated_tight_chokepoint_heavy`
 - `integrated_high_fleet_density_heavy`
+- `integrated_dense_merge_heavy`
 - `integrated_free_space`
 - `unseen_layout_generalization`
 - `unseen_demand_generalization`
@@ -175,7 +175,7 @@ The canonical dispatch artifact builder now trains from a merged multi-scenario 
 
 Integrated learning path currently implemented:
 
-- end-to-end macro PPO over centralized integrated observations with planner-guided warm start and best-validation checkpoint retention
+- conflict-aware macro PPO over warehouse graph state, robot-robot conflict edges, robot-macro incidence edges, macro conflict edges, and dense-traffic gating
 
 Training entry points:
 
@@ -199,15 +199,15 @@ The integrated stack writes explicit robot trajectories, macro decisions, collis
 
 ## Near-Term Priority
 
-The next research cycle should strengthen the planner-first story rather than expand the learning surface:
+The next research cycle should strengthen the dense integrated GNN story:
 
-- harden reproducibility and benchmark automation first,
-- expand planner-facing analysis around the integrated scenarios that already show a measurable win,
-- defer new learned-control claims until the current benchmark gate and reproducibility story are stronger.
+- harden reproducibility and dense-headline benchmark automation first,
+- prioritize `integrated_high_fleet_density_heavy` and `integrated_dense_merge_heavy`,
+- treat exact planners as reference ceilings and keep dispatch learning secondary.
 
 ## Limitations / Honest Caveats
 
-- The checked-in headline results currently support planner and congestion-aware heuristic claims, not broad learned-policy superiority claims.
+- The checked-in headline results are still narrower than the desired dense-traffic GNN claim until the new dense benchmark suite is regenerated with trained artifacts.
 - The canonical full-matrix configs now resolve learned policies through the canonical artifact manifest. The artifact bundle still needs to be generated before the canonical suite can support full learning-vs-planning claims end to end.
 - Global optimal MAPF over future task releases is still out of scope. The exact MAPF baseline is explicitly current-epoch and bounded to the current macro candidate surface.
 - Dispatch and integrated runs now support battery-aware task filtering, charge actions, charging metrics, and explicit polygon obstacle geometry, but this is still a research scaffold rather than a warehouse-grade battery-management or CAD-geometry stack.

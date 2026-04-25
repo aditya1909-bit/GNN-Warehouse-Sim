@@ -10,6 +10,7 @@ The repository now has a canonical benchmark harness for benchmark-first compari
 - [`configs/benchmarks/canonical_full_matrix_smoke.toml`](../configs/benchmarks/canonical_full_matrix_smoke.toml)
 - [`configs/benchmarks/canonical_dispatch_benchmark_heavy.toml`](../configs/benchmarks/canonical_dispatch_benchmark_heavy.toml)
 - [`configs/benchmarks/canonical_integrated_benchmark_heavy.toml`](../configs/benchmarks/canonical_integrated_benchmark_heavy.toml)
+- [`configs/benchmarks/canonical_integrated_dense_headline.toml`](../configs/benchmarks/canonical_integrated_dense_headline.toml)
 - [`configs/benchmarks/canonical_full_matrix_heavy.toml`](../configs/benchmarks/canonical_full_matrix_heavy.toml)
 
 Run the full suite with:
@@ -50,7 +51,7 @@ The checked-in canonical artifacts support the following claim status:
 | Dispatch heuristics | Supported, but scenario-specific | The clearest current dispatch claim is the `open_low_load` win for `congestion_aware_nearest_robot_task`; other dispatch scenarios are mixed or effectively tied. |
 | Dispatch learned models | Inconclusive for headline use | The learned dispatch family is present in the suite, but it does not beat the strongest heuristic across the checked-in canonical results. |
 | Integrated planners | Supported | `optimal_mapf_coordinator` has the clearest checked-in positive result, especially on `integrated_narrow_bottleneck`. |
-| Integrated macro PPO | Benchmark-gated | Treat as experimental until the throughput gate in `outputs/canonical_artifacts/macro_ppo/claim_gate.json` is satisfied. |
+| Integrated conflict-graph macro PPO | Dense-headline path, benchmark-gated | Treat as the primary learned integrated policy family, but only claim dense-traffic superiority after the dense headline suite clears safety, throughput, and distinctness gates. |
 
 ## Scenario Families
 
@@ -66,6 +67,7 @@ The canonical scenario matrix is organized around fixed named regimes:
 - `integrated_reserved_nodes`
 - `integrated_narrow_bottleneck`
 - `integrated_tight_chokepoint`
+- `integrated_dense_merge_heavy`
 - `integrated_free_space`
 - `unseen_layout_generalization`
 - `unseen_demand_generalization`
@@ -147,9 +149,9 @@ They now emit the same reproducibility bundle and canonical metric names as the 
 
 ## Near-Term Focus
 
-The next benchmark-focused research cycle should prioritize the integrated planner story:
+The next benchmark-focused research cycle should prioritize the dense integrated GNN story:
 
-- keep improving reproducibility and benchmark automation,
-- add planner-facing analysis where the integrated stack already shows a measurable win,
+- keep improving reproducibility and dense-headline benchmark automation,
+- use `canonical_integrated_dense_headline.toml` as the headline suite,
 - keep using distinctness audits to verify learned policies are not collapsing onto baselines,
-- avoid broad learned-policy claims until the current benchmark gates and repeated-seed evidence are stronger.
+- keep exact planners in the suite as strong references rather than mandatory targets to beat everywhere.

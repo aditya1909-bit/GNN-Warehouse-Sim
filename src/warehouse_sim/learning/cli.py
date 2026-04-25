@@ -29,6 +29,7 @@ from warehouse_sim.learning.linear_fit import GroupedLinearFitConfig, fit_groupe
 from warehouse_sim.learning.mlp_fit import GroupedMLPFitConfig, fit_grouped_mlp_model
 from warehouse_sim.learning.splits import SplitConfig, split_dispatch_observation_dataset
 from warehouse_sim.utils.dependencies import require_dependency
+from warehouse_sim.utils.progress import ProgressTracker
 
 
 def run_offline_training_from_config(config: OfflineTrainingConfig) -> dict[str, Path]:
@@ -81,6 +82,7 @@ def run_offline_training_from_config(config: OfflineTrainingConfig) -> dict[str,
         }
         evaluation_summaries: dict[str, dict[str, float | int | None]] = {}
         split_summaries = {}
+        evaluation_progress = ProgressTracker(label="graph_eval", total=3, unit="split")
         for split in (splits.train, splits.validation, splits.test):
             evaluation = evaluate_graph_dispatch_artifact(split.dataset, artifact_path)
             written_paths.update(write_offline_evaluation_report(output_dir, split.name, evaluation))
@@ -90,6 +92,8 @@ def run_offline_training_from_config(config: OfflineTrainingConfig) -> dict[str,
                 "dispatch_groups": split.dataset.group_count,
                 "split_units": list(split.split_units),
             }
+            evaluation_progress.update(len(evaluation_summaries), extra=split.name, force=True)
+        evaluation_progress.close(extra="graph evaluation complete")
         summary_path = output_dir / "training_summary.json"
         summary_payload = {
             "name": config.name,
@@ -173,6 +177,7 @@ def run_offline_training_from_config(config: OfflineTrainingConfig) -> dict[str,
     }
     evaluation_summaries: dict[str, dict[str, float | int | None]] = {}
     split_summaries = {}
+    evaluation_progress = ProgressTracker(label=f"{config.model.type}_eval", total=3, unit="split")
 
     for split in (splits.train, splits.validation, splits.test):
         evaluation = evaluate_dispatch_model(split.dataset, training_result.artifact)
@@ -183,6 +188,8 @@ def run_offline_training_from_config(config: OfflineTrainingConfig) -> dict[str,
             "dispatch_groups": split.dataset.group_count,
             "split_units": list(split.split_units),
         }
+        evaluation_progress.update(len(evaluation_summaries), extra=split.name, force=True)
+    evaluation_progress.close(extra=f"{config.model.type} evaluation complete")
 
     summary_path = output_dir / "training_summary.json"
     summary_payload = {

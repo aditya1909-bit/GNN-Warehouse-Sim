@@ -238,6 +238,12 @@ def test_load_integrated_rl_training_config() -> None:
     config = load_integrated_rl_training_config(config_path)
 
     assert config.name == "integrated_macro_ppo_training"
-    assert len(config.curriculum.scenario_configs) == 2
+    assert len(config.curriculum.scenario_configs) == 3
     assert config.benchmark_gate.min_task_completion_rate == 0.98
-    assert config.warm_start.epochs == 0
+    assert config.warm_start.epochs == 1
+    assert config.model.top_k_conflicting_robots == 4
+    assert config.curriculum.scenario_weights["integrated_dense_merge_heavy"] == 3.0
+    assert config.ppo.learner_minibatch_size == 16
+    assert config.runtime.device == "mps"
+    assert config.runtime.rollout_workers == 4
+    assert config.runtime.episodes_per_sync == 2

@@ -63,7 +63,8 @@ The experiment layer now supports both hand-configured and trained candidate sco
 - `trained_mlp_model`: load a fitted MLP artifact
 - `trained_graph_dispatch_model`: load a PyG graph-dispatch artifact
 - `optimal_mapf_coordinator`: run the integrated exact current-epoch routing baseline
-- `trained_end_to_end_macro_ppo`: load an integrated macro PPO artifact
+- `trained_conflict_graph_macro_ppo`: load the dense-traffic integrated conflict-graph macro PPO artifact
+- `trained_end_to_end_macro_ppo`: load a legacy integrated macro PPO artifact
 
 Example:
 

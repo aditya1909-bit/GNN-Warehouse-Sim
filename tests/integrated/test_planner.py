@@ -197,6 +197,70 @@ def test_solve_exact_mapf_macro_plan_returns_conflict_free_joint_solution() -> N
     assert not conflicts
 
 
+def test_build_integrated_observation_emits_conflict_graph_features() -> None:
+    environment = WarehouseEnvironment(build_synthetic_grid_layout(SyntheticGridLayoutConfig(rows=2, columns=3)))
+    tasks = (
+        Task(
+            task_id="task_left",
+            release_time=0.0,
+            pickup_node="r0_c1",
+            dropoff_node="r0_c2",
+            service_time_estimate=0.0,
+        ),
+        Task(
+            task_id="task_right",
+            release_time=0.0,
+            pickup_node="r0_c1",
+            dropoff_node="r0_c0",
+            service_time_estimate=0.0,
+        ),
+    )
+    robots = (
+        RobotState.from_spec(RobotSpec(robot_id="robot_left", initial_node="r0_c0")),
+        RobotState.from_spec(RobotSpec(robot_id="robot_right", initial_node="r0_c2")),
+    )
+    config = SimulationConfig(
+        coordination_mode=CoordinationMode.INTEGRATED,
+        execution_model=ExecutionModel.IDEALIZED,
+        coordination=CoordinationRuntimeConfig(
+            control_dt=0.25,
+            replan_period=1.0,
+            robot_radius=0.2,
+            collision_clearance=0.05,
+            k_shortest_paths=2,
+            max_route_options_per_pair=2,
+        ),
+    )
+    observation = build_integrated_observation(
+        environment=environment,
+        robot_states=robots,
+        tasks=tasks,
+        released_task_ids={task.task_id for task in tasks},
+        claimed_task_ids=set(),
+        completed_task_ids=set(),
+        active_plans={},
+        occupancy=ContinuousOccupancyTable(robot_radius=0.2, collision_clearance=0.05),
+        current_time=0.0,
+        config=config,
+    )
+
+    assert observation.robot_robot_conflict_edges
+    assert observation.robot_robot_conflict_features
+    assert observation.robot_macro_incidence_edges
+    assert observation.robot_macro_incidence_features
+    assert observation.macro_conflict_edges
+    assert observation.macro_conflict_features
+    assert observation.global_density_features
+    assert observation.robot_candidate_slices
+    assert len(observation.global_candidate_task_indices) == sum(len(candidates) for candidates in observation.macro_candidates)
+    assert len(observation.global_candidate_robot_indices) == len(observation.global_candidate_task_indices)
+    assert any(
+        candidate.planner_estimated_conflict_count > 0.0
+        for candidates in observation.macro_candidates
+        for candidate in candidates
+    )
+
+
 def test_detect_free_space_crossing_conflict() -> None:
     conflicts = detect_free_space_collision_events(
         (
